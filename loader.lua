@@ -6,11 +6,19 @@ SCRYFALL_ID_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_MULTIVERSE_BASE_URL = "https://api.scryfall.com/cards/multiverse/"
 SCRYFALL_NAME_BASE_URL = "https://api.scryfall.com/cards/named/?exact="
 
+DECK_SOURCE_ARCHIDEKT = "archidekt"
+DECK_SOURCE_TAPPEDOUT = "tappedout"
+
 MAINDECK_POSITION_OFFSET = {0.0, 0.2, 0.1286}
 DOUBLEFACE_POSITION_OFFSET = {1.47, 0.2, 0.1286}
 SIDEBOARD_POSITION_OFFSET = {-1.47, 0.2, 0.1286}
 COMMANDER_POSITION_OFFSET = {0.7286, 0.2, -0.8257}
 TOKENS_POSITION_OFFSET = {-0.7286, 0.2, -0.8257}
+
+------ GLOBAL STATE
+lock = false
+playerColor = nil
+deckSource = nil
 
 ------ UTILITY
 local function iterateLines(s)
@@ -29,11 +37,11 @@ local function vecMult(v, s)
     return {v[1] * s, v[2] * s, v[3] * s}
 end
 
-local function printErr(s, playerColor)
+local function printErr(s)
     printToColor(s, playerColor, {r=1, g=0, b=0})
 end
 
-local function printInfo(s, playerColor)
+local function printInfo(s)
     printToColor(s, playerColor)
 end
 
@@ -233,9 +241,121 @@ local function fetchCardData(cards, playerColor, onComplete)
     )
 end
 
+-- Queries for the given card IDs, collates deck, and spawns objects.
+local function loadDeck(cardIDs, deckName, onComplete)
+    local maindeckPosition = self.positionToWorld(MAINDECK_POSITION_OFFSET)
+    local doublefacePosition = self.positionToWorld(DOUBLEFACE_POSITION_OFFSET)
+    local sideboardPosition = self.positionToWorld(SIDEBOARD_POSITION_OFFSET)
+    local commanderPosition = self.positionToWorld(COMMANDER_POSITION_OFFSET)
+    local tokensPosition = self.positionToWorld(TOKENS_POSITION_OFFSET)
+
+    printInfo("Querying Scryfall for card data...")
+
+    fetchCardData(cardIDs, playerColor, function(cards, tokenIDs)
+        if tokenIDs and tokenIDs[1] then
+            printInfo("Querying Scryfall for tokens...")
+        end
+
+        fetchCardData(tokenIDs, playerColor, function(tokens, _)
+            local maindeck = {}
+            local sideboard = {}
+            local commander = {}
+            local doubleface = {}
+
+            for _, card in ipairs(cards) do
+                if card.sideboard then
+                    table.insert(sideboard, card)
+                elseif card.commander then
+                    table.insert(commander, card)
+                elseif card.doubleface then
+                    table.insert(doubleface, card)
+                else
+                    table.insert(maindeck, card)
+                end
+            end
+
+            printInfo("Spawning deck...")
+
+            local sem = 5
+            local function decSem() sem = sem - 1 end
+
+            spawnDeck(maindeck, deckName, maindeckPosition, true,
+                function() -- onSuccess
+                    decSem()
+                end,
+                function(e) -- onError
+                    printErr(e, playerColor)
+                    decSem()
+                end
+            )
+
+            spawnDeck(doubleface, deckName .. " - double face cards", doublefacePosition, true,
+                function(obj) -- onSuccess
+                    if obj then
+                        obj.setDescription("Combine these into states.")
+                    end
+                    decSem()
+                end,
+                function(e) -- onError
+                    printErr(e, playerColor)
+                    decSem()
+                end
+            )
+
+            spawnDeck(sideboard, deckName .. " - sideboard", sideboardPosition, true,
+                function() -- onSuccess
+                    decSem()
+                end,
+                function(e) -- onError
+                    printErr(e, playerColor)
+                    decSem()
+                end
+            )
+
+            spawnDeck(commander, deckName .. " - commanders", commanderPosition, false,
+                function() -- onSuccess
+                    decSem()
+                end,
+                function(e) -- onError
+                    printErr(e, playerColor)
+                    decSem()
+                end
+            )
+
+            spawnDeck(tokens, deckName .. " - tokens", tokensPosition, true,
+                function() -- onSuccess
+                    decSem()
+                end,
+                function(e) -- onError
+                    printErr(e, playerColor)
+                    decSem()
+                end
+            )
+
+            Wait.condition(
+                function() onComplete() end,
+                function() return (sem == 0) end,
+                10,
+                function() printErr("Error spawning deck objects... timed out.") end
+            )
+        end)
+    end)
+end
+
 ------ DECK BUILDER SCRAPING
+local function parseDeckIDTappedout(s)
+    return s:match("tappedout%.net/mtg%-decks/([^%s/]*)") or s:match("(%S*)")
+end
+
 local function queryDeckTappedout(slug, onSuccess, onError)
+    if not slug or string.len(slug) == 0 then
+        onError("Invalid tappedout deck slug: " .. slug)
+        return
+    end
+
     local url = TAPPEDOUT_BASE_URL .. slug .. TAPPEDOUT_URL_SUFFIX
+
+    printInfo("Fetching decklist from tappedout...")
 
     WebRequest.get(url .. "?fmt=multiverse", function(webReturn)
         if webReturn.is_error then
@@ -306,8 +426,19 @@ local function queryDeckTappedout(slug, onSuccess, onError)
     end)
 end
 
+local function parseDeckIDArchidekt(s)
+    return s:match("archidekt%.com/decks/(%d*)") or s:match("(%d*)")
+end
+
 local function queryDeckArchidekt(deckID, onSuccess, onError)
+    if not deckID or string.len(deckID) == 0 then
+        onError("Invalid archidekt deck ID: " .. deckID)
+        return
+    end
+
     local url = ARCHIDEKT_BASE_URL .. deckID .. ARCHIDEKT_URL_SUFFIX
+
+    printInfo("Fetching decklist from archidekt...")
 
     WebRequest.get(url, function(webReturn)
         if webReturn.is_error then
@@ -350,65 +481,57 @@ local function queryDeckArchidekt(deckID, onSuccess, onError)
     end)
 end
 
--- Queries for the given card IDs, collates deck, and spawns objects.
-local function loadDeck(cardIDs, deckName, playerColor)
-    local maindeckPosition = self.positionToWorld(MAINDECK_POSITION_OFFSET)
-    local doublefacePosition = self.positionToWorld(DOUBLEFACE_POSITION_OFFSET)
-    local sideboardPosition = self.positionToWorld(SIDEBOARD_POSITION_OFFSET)
-    local commanderPosition = self.positionToWorld(COMMANDER_POSITION_OFFSET)
-    local tokensPosition = self.positionToWorld(TOKENS_POSITION_OFFSET)
+function importDeck()
+    if lock then
+        printErr("Error: Deck import started while importer locked.")
+    end
 
-    printInfo("Querying Scryfall for card data...", playerColor)
+    local deckDescriptor = getDeckInputValue()
 
-    fetchCardData(cardIDs, playerColor, function(cards, tokenIDs)
-        if tokenIDs and tokenIDs[1] then
-            printInfo("Querying Scryfall for tokens...", playerColor)
+    if string.len(deckDescriptor) == 0 then
+        printInfo("Please enter a deck ID or URL.")
+        return 1
+    end
+
+    local deckID, queryDeckFunc
+    if deckSource == DECK_SOURCE_TAPPEDOUT then
+        queryDeckFunc = queryDeckTappedout
+        deckID = parseDeckIDTappedout(deckDescriptor)
+        if not deckID then
+            printErr("Failed to parse Tappedout deck ID")
+            return 1
         end
+    elseif deckSource == DECK_SOURCE_ARCHIDEKT then
+        queryDeckFunc = queryDeckArchidekt
+        deckID = parseDeckIDArchidekt(deckDescriptor)
+        if not deckID then
+            printErr("Failed to parse Archidekt deck ID")
+            return 1
+        end
+    else
+        printErr("Error. Unknown deck source: " .. deckSource)
+        return 1
+    end
 
-        fetchCardData(tokenIDs, playerColor, function(tokens, _)
-            local maindeck = {}
-            local sideboard = {}
-            local commander = {}
-            local doubleface = {}
+    lock = true
+    printToAll("Starting deck import...")
 
-            for _, card in ipairs(cards) do
-                if card.sideboard then
-                    table.insert(sideboard, card)
-                elseif card.commander then
-                    table.insert(commander, card)
-                elseif card.doubleface then
-                    table.insert(doubleface, card)
-                else
-                    table.insert(maindeck, card)
-                end
-            end
+    queryDeckFunc(
+        deckID,
+        function(cardIDs, deckName) -- onSuccess
+            loadDeck(cardIDs, deckName, function()
+                printToAll("Deck import complete!")
+                lock = false
+            end)
+        end,
+        function(e) -- onError
+            printErr(e, playerColor)
+            printToAll("Deck import failed.")
+            lock = false
+        end
+    )
 
-            printInfo("Spawning deck...", playerColor)
-
-            spawnDeck(maindeck, deckName, maindeckPosition, true,
-                function() end, -- onSuccess
-                function(e) printErr(e, playerColor) end -- onError
-            )
-            spawnDeck(doubleface, deckName .. " - double face cards", doublefacePosition, true,
-            function(obj) if obj then obj.setDescription("Combine these into states.") end end, -- onSuccess
-            function(e) printErr(e, playerColor) end -- onError
-            )
-            spawnDeck(sideboard, deckName .. " - sideboard", sideboardPosition, true,
-                function() end, -- onSuccess
-                function(e) printErr(e, playerColor) end -- onError
-            )
-            spawnDeck(commander, deckName .. " - commanders", commanderPosition, false,
-                function() end, -- onSuccess
-                function(e) printErr(e, playerColor) end -- onError
-            )
-            spawnDeck(tokens, deckName .. " - tokens", tokensPosition, true,
-                function() end, -- onSuccess
-                function(e) printErr(e, playerColor) end -- onError
-            )
-
-            printInfo("Done!", playerColor)
-        end)
-    end)
+    return 1
 end
 
 ------ UI
@@ -416,7 +539,7 @@ local function drawUI()
     self.createInput({
         input_function = "onLoadDeckInput",
         function_owner = self,
-        label          = "Enter deck ID.",
+        label          = "Enter deck URL/ID.",
         alignment      = 2,
         position       = {x=0, y=0.1, z=0.78},
         width          = 2000,
@@ -455,9 +578,9 @@ local function drawUI()
     })
 end
 
-local function getDeckInputValue()
+function getDeckInputValue()
     for i, input in pairs(self.getInputs()) do
-        if input.label == "Enter deck ID." then
+        if input.label == "Enter deck URL/ID." then
             return string.gsub(input.value, "^%s*(.-)%s*$", "%1")
         end
     end
@@ -467,46 +590,28 @@ end
 
 function onLoadDeckInput(_, _, _) end
 
-function onLoadDeckTappedoutButton(_, playerColor, _)
-    local slug = getDeckInputValue()
-
-    if string.len(slug) == 0 then
-        printInfo("Please enter a deck slug from tappedout.net", playerColor)
+function onLoadDeckTappedoutButton(_, pc, _)
+    if lock then
+        printToColor("Another deck is currently being imported. Please wait for that to finish.", pc)
         return
     end
 
-    printInfo("Fetching deck contents from tappedout...", playerColor)
+    playerColor = pc
+    deckSource = DECK_SOURCE_TAPPEDOUT
 
-    queryDeckTappedout(
-        slug,
-        function(cardIDs, deckName) -- onSuccess
-            loadDeck(cardIDs, deckName, playerColor)
-        end,
-        function(e) -- onError
-            printErr(e, playerColor)
-        end
-    )
+    startLuaCoroutine(self, "importDeck")
 end
 
-function onLoadDeckArchidektButton(_, playerColor, _)
-    local deckID = getDeckInputValue()
-
-    if string.len(deckID) == 0 then
-        printInfo("Please enter a deck ID from archidekt.com", playerColor)
+function onLoadDeckArchidektButton(_, pc, _)
+    if lock then
+        printToColor("Another deck is currently being imported. Please wait for that to finish.", pc)
         return
     end
 
-    printInfo("Fetching deck contents from archidekt...", playerColor)
+    playerColor = pc
+    deckSource = DECK_SOURCE_ARCHIDEKT
 
-    queryDeckArchidekt(
-        deckID,
-        function(cardIDs, deckName) -- onSuccess
-            loadDeck(cardIDs, deckName, playerColor)
-        end,
-        function(e) -- onError
-            printErr(e, playerColor)
-        end
-    )
+    startLuaCoroutine(self, "importDeck")
 end
 
 ------ TTS CALLBACKS
