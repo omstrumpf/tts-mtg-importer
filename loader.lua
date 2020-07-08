@@ -21,6 +21,11 @@ playerColor = nil
 deckSource = nil
 
 ------ UTILITY
+local function trim(s)
+    local n = s:find"%S"
+    return n and s:match(".*%S", n) or ""
+end
+
 local function iterateLines(s)
     if string.sub(s, -1) ~= '\n' then
         s = s .. '\n'
@@ -354,7 +359,14 @@ end
 
 ------ DECK BUILDER SCRAPING
 local function parseDeckIDTappedout(s)
-    return s:match("tappedout%.net/mtg%-decks/([^%s/]*)") or s:match("(%S*)")
+    -- NOTE: need to do this in multiple parts because TTS uses an old version
+    -- of lua with hilariously sad pattern matching
+    local urlSuffix = s:match("tappedout%.net/mtg%-decks/(.*)")
+    if urlSuffix then
+        return urlSuffix:match("([^%s/$]*)")
+    else
+        return s:match("([^%s/]*)")
+    end
 end
 
 local function queryDeckTappedout(slug, onSuccess, onError)
@@ -591,7 +603,7 @@ end
 function getDeckInputValue()
     for i, input in pairs(self.getInputs()) do
         if input.label == "Enter deck URL/ID." then
-            return string.gsub(input.value, "^%s*(.-)%s*$", "%1")
+            return trim(input.value)
         end
     end
 
