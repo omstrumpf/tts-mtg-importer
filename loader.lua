@@ -128,8 +128,49 @@ end
 
 ------ SCRYFALL
 
+-- Parses scryfall reseponse data for a card.
+-- Returns a populated card table, a list of tokens, and an error if occured.
+local function parseCardData(cardID, data)
+    local tokens = {}
+    if data.all_parts and not (data.layout == "token") then
+        for _, part in ipairs(data.all_parts) do
+            if part.component and part.component == "token" then
+                table.insert(tokens, {
+                    name = part.name,
+                    scryfallID = part.id,
+                })
+            end
+        end
+    end
+
+    local card = cardID
+    card.name = data.name
+    card.faces = {}
+    card.scryfallID = data.id
+
+    if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" then
+        card['doubleface'] = true
+        for i, face in ipairs(data.card_faces) do
+            card['faces'][i] = {
+                name = face.name,
+                imageURI = face.image_uris.normal,
+                oracleText = face.oracle_text,
+            }
+        end
+    else
+        card['faces'][1] = {
+            name = data.name,
+            imageURI = data.image_uris.normal,
+            oracleText = data.oracle_text,
+        }
+        card['doubleface'] = false
+    end
+
+    return card, tokens, nil
+end
+
 -- Queries scryfall by the [cardID].
--- cardID must define at least one of scryfallID, multiverseID, or name:
+-- cardID must define at least one of scryfallID, multiverseID, or name.
 -- onSuccess is called with a populated card table, and a table of associated token cardIDs.
 local function queryCard(cardID, onSuccess, onError)
     local query_url
@@ -164,42 +205,11 @@ local function queryCard(cardID, onSuccess, onError)
             return
         end
 
-        -- Grab associated tokens
-        local tokens = {}
-        if data.all_parts and not (data.layout == "token") then
-            for _, part in ipairs(data.all_parts) do
-                if part.component and part.component == "token" then
-                    table.insert(tokens, {
-                        name = part.name,
-                        scryfallID = part.id,
-                    })
-                end
-            end
-        end
+        local card, tokens, err = parseCardData(cardID, data)
 
-        local card = cardID
-        card.name = data.name
-        card.faces = {}
-        card.scryfallID = data.id
-
-        if data.layout == "normal" or data.layout == "split" or data.layout == "token" then
-            card['faces'][1] = {
-                name = data.name,
-                imageURI = data.image_uris.normal,
-                oracleText = data.oracle_text,
-            }
-            card['doubleface'] = false
-        elseif data.layout == "transform" then
-            card['doubleface'] = true
-            for i, face in ipairs(data.card_faces) do
-                card['faces'][i] = {
-                    name = face.name,
-                    imageURI = face.image_uris.normal,
-                    oracleText = face.oracle_text,
-                }
-            end
-        else
-            onError("Unrecognized card layout: " .. (data.layout or "nil"))
+        if err then
+            onError(err)
+            return
         end
 
         onSuccess(card, tokens)
@@ -207,7 +217,7 @@ local function queryCard(cardID, onSuccess, onError)
 end
 
 -- Queries card data for all cards.
-local function fetchCardData(cards, playerColor, onComplete)
+local function fetchCardData(cards, onComplete)
     local sem = 0
     local function incSem() sem = sem + 1 end
     local function decSem() sem = sem - 1 end
@@ -227,7 +237,7 @@ local function fetchCardData(cards, playerColor, onComplete)
                 decSem()
             end,
             function(e) -- onError
-                printErr("Error querying scryfall for card [" .. card.name .. "]: " .. e, playerColor)
+                printErr("Error querying scryfall for card [" .. card.name .. "]: " .. e)
                 decSem()
             end
         )
@@ -237,7 +247,7 @@ local function fetchCardData(cards, playerColor, onComplete)
         function() onComplete(cardData, tokenIDs) end,
         function() return (sem == 0) end,
         30,
-        function() printErr("Error loading card images... timed out.", playerColor) end
+        function() printErr("Error loading card images... timed out.") end
     )
 end
 
@@ -251,12 +261,12 @@ local function loadDeck(cardIDs, deckName, onComplete)
 
     printInfo("Querying Scryfall for card data...")
 
-    fetchCardData(cardIDs, playerColor, function(cards, tokenIDs)
+    fetchCardData(cardIDs, function(cards, tokenIDs)
         if tokenIDs and tokenIDs[1] then
             printInfo("Querying Scryfall for tokens...")
         end
 
-        fetchCardData(tokenIDs, playerColor, function(tokens, _)
+        fetchCardData(tokenIDs, function(tokens, _)
             local maindeck = {}
             local sideboard = {}
             local commander = {}
@@ -284,7 +294,7 @@ local function loadDeck(cardIDs, deckName, onComplete)
                     decSem()
                 end,
                 function(e) -- onError
-                    printErr(e, playerColor)
+                    printErr(e)
                     decSem()
                 end
             )
@@ -297,7 +307,7 @@ local function loadDeck(cardIDs, deckName, onComplete)
                     decSem()
                 end,
                 function(e) -- onError
-                    printErr(e, playerColor)
+                    printErr(e)
                     decSem()
                 end
             )
@@ -307,7 +317,7 @@ local function loadDeck(cardIDs, deckName, onComplete)
                     decSem()
                 end,
                 function(e) -- onError
-                    printErr(e, playerColor)
+                    printErr(e)
                     decSem()
                 end
             )
@@ -317,7 +327,7 @@ local function loadDeck(cardIDs, deckName, onComplete)
                     decSem()
                 end,
                 function(e) -- onError
-                    printErr(e, playerColor)
+                    printErr(e)
                     decSem()
                 end
             )
@@ -327,7 +337,7 @@ local function loadDeck(cardIDs, deckName, onComplete)
                     decSem()
                 end,
                 function(e) -- onError
-                    printErr(e, playerColor)
+                    printErr(e)
                     decSem()
                 end
             )
@@ -525,7 +535,7 @@ function importDeck()
             end)
         end,
         function(e) -- onError
-            printErr(e, playerColor)
+            printErr(e)
             printToAll("Deck import failed.")
             lock = false
         end
