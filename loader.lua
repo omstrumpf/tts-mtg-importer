@@ -31,7 +31,13 @@ local function iterateLines(s)
         s = s .. '\n'
     end
 
-    return string.gmatch(s, "(.-)\n")
+    local success, line = pcall(function() return string.gmatch(s, "(.-)\n") end)
+
+    if success then
+        return line
+    else
+        return ipairs({})
+    end
 end
 
 local function vecSum(v1, v2)
@@ -189,8 +195,8 @@ local function queryCard(cardID, onSuccess, onError)
     end
 
     webRequest = WebRequest.get(query_url, function(webReturn)
-        if webReturn.is_error then
-            onError(webReturn.error)
+        if webReturn.is_error or webReturn.error then
+            onError("Web request error: " .. webReturn.error or "unknown")
             return
         elseif string.len(webReturn.text) == 0 then
             onError("empty response")
@@ -380,8 +386,15 @@ local function queryDeckTappedout(slug, onSuccess, onError)
     printInfo("Fetching decklist from tappedout...")
 
     WebRequest.get(url .. "?fmt=multiverse", function(webReturn)
-        if webReturn.is_error then
-            onError("Web request error: " .. webReturn.error)
+        if webReturn.error then
+            if string.match(webReturn.error, "(404)") then
+                onError("Deck not found. Is it public?")
+            else
+                onError("Web request error: " .. webReturn.error)
+            end
+            return
+        elseif webReturn.is_error then
+            onError("Web request error: unknown")
             return
         elseif string.len(webReturn.text) == 0 then
             onError("Web request error: empty response")
@@ -391,8 +404,15 @@ local function queryDeckTappedout(slug, onSuccess, onError)
         multiverseData = webReturn.text
 
         WebRequest.get(url .. "?fmt=txt", function(webReturn)
-            if webReturn.is_error then
-                onError("Web request error: " .. webReturn.error)
+            if webReturn.error then
+                if string.match(webReturn.error, "(404)") then
+                    onError("Deck not found. Is it public?")
+                else
+                    onError("Web request error: " .. webReturn.error)
+                end
+                return
+            elseif webReturn.is_error then
+                onError("Web request error: unknown")
                 return
             elseif string.len(webReturn.text) == 0 then
                 onError("Web request error: empty response")
@@ -463,8 +483,15 @@ local function queryDeckArchidekt(deckID, onSuccess, onError)
     printInfo("Fetching decklist from archidekt...")
 
     WebRequest.get(url, function(webReturn)
-        if webReturn.is_error then
-            onError("Web request error: " .. webReturn.error)
+        if webReturn.error then
+            if string.match(webReturn.error, "(404)") then
+                onError("Deck not found. Is it public?")
+            else
+                onError("Web request error: " .. webReturn.error)
+            end
+            return
+        elseif webReturn.is_error then
+            onError("Web request error: unknown")
             return
         elseif string.len(webReturn.text) == 0 then
             onError("Web request error: empty response")
