@@ -1,13 +1,23 @@
+------ CONSTANTS
 TAPPEDOUT_BASE_URL = "https://tappedout.net/mtg-decks/"
 TAPPEDOUT_URL_SUFFIX = "/"
+TAPPEDOUT_URL_MATCH = "tappedout.net"
+
 ARCHIDEKT_BASE_URL = "https://archidekt.com/api/decks/"
 ARCHIDEKT_URL_SUFFIX = "/small/"
+ARCHIDEKT_URL_MATCH = "archidekt.com"
+
+GOLDFISH_URL_MATCH = "mtggoldfish.com"
+
+MOXFIELD_URL_MATCH = "moxfield.com"
+
 SCRYFALL_ID_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_MULTIVERSE_BASE_URL = "https://api.scryfall.com/cards/multiverse/"
+SCRYFALL_SET_NUM_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_NAME_BASE_URL = "https://api.scryfall.com/cards/named/?exact="
 
-DECK_SOURCE_ARCHIDEKT = "archidekt"
-DECK_SOURCE_TAPPEDOUT = "tappedout"
+DECK_SOURCE_URL = "url"
+DECK_SOURCE_NOTEBOOK = "notebook"
 
 MAINDECK_POSITION_OFFSET = {0.0, 0.2, 0.1286}
 DOUBLEFACE_POSITION_OFFSET = {1.47, 0.2, 0.1286}
@@ -27,6 +37,10 @@ local function trim(s)
 end
 
 local function iterateLines(s)
+    if not s or string.len(s) == 0 then
+        return ipairs({})
+    end
+
     if string.sub(s, -1) ~= '\n' then
         s = s .. '\n'
     end
@@ -38,6 +52,16 @@ local function iterateLines(s)
     else
         return ipairs({})
     end
+end
+
+local function readNotebookForColor(playerColor)
+    for i, tab in ipairs(Notes.getNotebookTabs()) do
+        if tab.title == playerColor and tab.color == playerColor then
+            return tab.body
+        end
+    end
+
+    return nil
 end
 
 local function vecSum(v1, v2)
@@ -182,14 +206,19 @@ end
 
 -- Queries scryfall by the [cardID].
 -- cardID must define at least one of scryfallID, multiverseID, or name.
+-- if forceNameQuery is true, will query scryfall by card name ignoring other data.
 -- onSuccess is called with a populated card table, and a table of associated token cardIDs.
-local function queryCard(cardID, onSuccess, onError)
+local function queryCard(cardID, forceNameQuery, onSuccess, onError)
     local query_url
 
-    if cardID['scryfallID'] and string.len(cardID['scryfallID']) > 0 then
-        query_url = SCRYFALL_ID_BASE_URL .. cardID['scryfallID']
-    elseif cardID['multiverseID'] and string.len(cardID['multiverseID']) > 0 then
-        query_url = SCRYFALL_MULTIVERSE_BASE_URL .. cardID['multiverseID']
+    if forceNameQuery then
+        query_url = SCRYFALL_NAME_BASE_URL .. cardID['name']
+    elseif cardID.scryfallID and string.len(cardID.scryfallID) > 0 then
+        query_url = SCRYFALL_ID_BASE_URL .. cardID.scryfallID
+    elseif cardID.multiverseID and string.len(cardID.multiverseID) > 0 then
+        query_url = SCRYFALL_MULTIVERSE_BASE_URL .. cardID.multiverseID
+    elseif cardID.setCode and string.len(cardID.setCode) > 0 and cardID.collectorNum and string.len(cardID.collectorNum) > 0 then
+        query_url = SCRYFALL_SET_NUM_BASE_URL .. string.lower(cardID.setCode) .. "/" .. cardID.collectorNum
     else
         query_url = SCRYFALL_NAME_BASE_URL .. cardID['name']
     end
@@ -236,20 +265,31 @@ local function fetchCardData(cards, onComplete)
     local cardData = {}
     local tokenIDs = {}
 
+    local function onQuerySuccess(card, tokens)
+        table.insert(cardData, card)
+        for _, token in ipairs(tokens) do
+            table.insert(tokenIDs, token)
+        end
+        decSem()
+    end
+
     for _, card in ipairs(cards) do
         incSem()
         queryCard(
             card,
-            function(card, tokens) -- onSuccess
-                table.insert(cardData, card)
-                for _, token in ipairs(tokens) do
-                    table.insert(tokenIDs, token)
-                end
-                decSem()
-            end,
+            false,
+            onQuerySuccess,
             function(e) -- onError
-                printErr("Error querying scryfall for card [" .. card.name .. "]: " .. e)
-                decSem()
+                -- try again, forcing query-by-name.
+                queryCard(
+                    card,
+                    true,
+                    onQuerySuccess,
+                    function(e) -- onError
+                        printErr("Error querying scryfall for card [" .. card.name .. "]: " .. e)
+                        decSem()
+                    end
+                )
             end
         )
     end
@@ -364,14 +404,70 @@ local function loadDeck(cardIDs, deckName, onComplete)
 end
 
 ------ DECK BUILDER SCRAPING
+local function queryDeckNotebook(_, onSuccess, onError)
+    local bookContents = readNotebookForColor(playerColor)
+
+    if bookContents == nil then
+        onError("Notebook not found: " .. playerColor)
+        return
+    elseif string.len(bookContents) == 0 then
+        onError("Notebook is empty. Please paste your decklist into your notebook (" .. playerColor .. ").")
+        return
+    end
+
+    local cards = {}
+
+    local i = 1
+    local mode = "deck"
+    for line in iterateLines(bookContents) do
+        line = string.gsub(line, "[\n\r]", "")
+
+        if string.len(line) > 0 then
+            if line == "Commander" then
+                mode = "commander"
+            elseif line == "Sideboard" then
+                mode = "sideboard"
+            elseif line == "Deck" then
+                mode = "deck"
+            else
+                local count, name, setCode, collectorNum = string.match(line, "(%d+) ([^%(%)]+) %(([%l%u]+)%) (%d+)")
+
+                if not count or not name then
+                    count, name = string.match(line, "(%d+) ([^%(%)]+)")
+                end
+
+                -- MTGA format uses DAR for dominaria for some reason, which scryfall can't find.
+                if setCode == "DAR" then
+                    setCode = "DOM"
+                end
+
+                if count and name then
+                    cards[i] = {
+                        count = count,
+                        name = name,
+                        setCode = setCode,
+                        collectorNum = collectorNum,
+                        sideboard = (mode == "sideboard"),
+                        commander = (mode == "commander")
+                    }
+
+                    i = i + 1
+                end
+            end
+        end
+    end
+
+    onSuccess(cards, "")
+end
+
 local function parseDeckIDTappedout(s)
     -- NOTE: need to do this in multiple parts because TTS uses an old version
     -- of lua with hilariously sad pattern matching
     local urlSuffix = s:match("tappedout%.net/mtg%-decks/(.*)")
     if urlSuffix then
-        return urlSuffix:match("([^%s/$]*)")
+        return urlSuffix:match("([^%s%?/$]*)")
     else
-        return s:match("([^%s/]*)")
+        return nil
     end
 end
 
@@ -469,7 +565,7 @@ local function queryDeckTappedout(slug, onSuccess, onError)
 end
 
 local function parseDeckIDArchidekt(s)
-    return s:match("archidekt%.com/decks/(%d*)") or s:match("(%d*)")
+    return s:match("archidekt%.com/decks/(%d*)")
 end
 
 local function queryDeckArchidekt(deckID, onSuccess, onError)
@@ -535,30 +631,36 @@ function importDeck()
         printErr("Error: Deck import started while importer locked.")
     end
 
-    local deckDescriptor = getDeckInputValue()
-
-    if string.len(deckDescriptor) == 0 then
-        printInfo("Please enter a deck ID or URL.")
-        return 1
-    end
+    local deckURL = getDeckInputValue()
 
     local deckID, queryDeckFunc
-    if deckSource == DECK_SOURCE_TAPPEDOUT then
-        queryDeckFunc = queryDeckTappedout
-        deckID = parseDeckIDTappedout(deckDescriptor)
-        if not deckID then
-            printErr("Failed to parse Tappedout deck ID")
+    if deckSource == DECK_SOURCE_URL then
+        if string.len(deckURL) == 0 then
+            printInfo("Please enter a deck URL.")
             return 1
         end
-    elseif deckSource == DECK_SOURCE_ARCHIDEKT then
-        queryDeckFunc = queryDeckArchidekt
-        deckID = parseDeckIDArchidekt(deckDescriptor)
-        if not deckID then
-            printErr("Failed to parse Archidekt deck ID")
+
+        if string.match(deckURL, TAPPEDOUT_URL_MATCH) then
+            queryDeckFunc = queryDeckTappedout
+            deckID = parseDeckIDTappedout(deckURL)
+        elseif string.match(deckURL, ARCHIDEKT_URL_MATCH) then
+            queryDeckFunc = queryDeckArchidekt
+            deckID = parseDeckIDArchidekt(deckURL)
+        elseif string.match(deckURL, GOLDFISH_URL_MATCH) then
+            printInfo("MTGGoldfish support is coming soon! In the meantime, please export to MTG Arena, and use notebook import.")
+            return 1
+        elseif string.match(deckURL, MOXFIELD_URL_MATCH) then
+            printInfo("Moxfield support is coming soon! In the meantime, please export to MTG Arena, and use notebook import.")
+            return 1
+        else
+            printInfo("Unknown deck site, sorry! Please export to MTG Arena and use notebook import.")
             return 1
         end
+    elseif deckSource == DECK_SOURCE_NOTEBOOK then
+        queryDeckFunc = queryDeckNotebook
+        deckID = nil
     else
-        printErr("Error. Unknown deck source: " .. deckSource)
+        printErr("Error. Unknown deck source: " .. deckSource or "nil")
         return 1
     end
 
@@ -588,7 +690,7 @@ local function drawUI()
     self.createInput({
         input_function = "onLoadDeckInput",
         function_owner = self,
-        label          = "Enter deck URL/ID.",
+        label          = "Enter deck URL, or load from Notebook.",
         alignment      = 2,
         position       = {x=0, y=0.1, z=0.78},
         width          = 2000,
@@ -599,23 +701,9 @@ local function drawUI()
     })
 
     self.createButton({
-        click_function = "onLoadDeckTappedoutButton",
+        click_function = "onLoadDeckURLButton",
         function_owner = self,
-        label          = "Load Deck (Tappedout)",
-        position       = {1, 0.1, 1.15},
-        rotation       = {0, 0, 0},
-        width          = 850,
-        height         = 160,
-        font_size      = 80,
-        color          = {0.5, 0.5, 0.5},
-        font_color     = {r=1, b=1, g=1},
-        tooltip        = "Click to load deck from tappedout.net",
-    })
-
-    self.createButton({
-        click_function = "onLoadDeckArchidektButton",
-        function_owner = self,
-        label          = "Load Deck (Archidekt)",
+        label          = "Load Deck (URL)",
         position       = {-1, 0.1, 1.15},
         rotation       = {0, 0, 0},
         width          = 850,
@@ -623,13 +711,27 @@ local function drawUI()
         font_size      = 80,
         color          = {0.5, 0.5, 0.5},
         font_color     = {r=1, b=1, g=1},
-        tooltip        = "Click to load deck from archidekt.com",
+        tooltip        = "Click to load deck from URL",
+    })
+
+    self.createButton({
+        click_function = "onLoadDeckNotebookButton",
+        function_owner = self,
+        label          = "Load Deck (Notebook)",
+        position       = {1, 0.1, 1.15},
+        rotation       = {0, 0, 0},
+        width          = 850,
+        height         = 160,
+        font_size      = 80,
+        color          = {0.5, 0.5, 0.5},
+        font_color     = {r=1, b=1, g=1},
+        tooltip        = "Click to load deck from notebook",
     })
 end
 
 function getDeckInputValue()
     for i, input in pairs(self.getInputs()) do
-        if input.label == "Enter deck URL/ID." then
+        if input.label == "Enter deck URL, or load from Notebook." then
             return trim(input.value)
         end
     end
@@ -639,26 +741,26 @@ end
 
 function onLoadDeckInput(_, _, _) end
 
-function onLoadDeckTappedoutButton(_, pc, _)
+function onLoadDeckURLButton(_, pc, _)
     if lock then
         printToColor("Another deck is currently being imported. Please wait for that to finish.", pc)
         return
     end
 
     playerColor = pc
-    deckSource = DECK_SOURCE_TAPPEDOUT
+    deckSource = DECK_SOURCE_URL
 
     startLuaCoroutine(self, "importDeck")
 end
 
-function onLoadDeckArchidektButton(_, pc, _)
+function onLoadDeckNotebookButton(_, pc, _)
     if lock then
         printToColor("Another deck is currently being imported. Please wait for that to finish.", pc)
         return
     end
 
     playerColor = pc
-    deckSource = DECK_SOURCE_ARCHIDEKT
+    deckSource = DECK_SOURCE_NOTEBOOK
 
     startLuaCoroutine(self, "importDeck")
 end
