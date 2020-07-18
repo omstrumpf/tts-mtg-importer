@@ -1,15 +1,17 @@
 ------ CONSTANTS
 TAPPEDOUT_BASE_URL = "https://tappedout.net/mtg-decks/"
 TAPPEDOUT_URL_SUFFIX = "/"
-TAPPEDOUT_URL_MATCH = "tappedout.net"
+TAPPEDOUT_URL_MATCH = "tappedout%.net"
 
 ARCHIDEKT_BASE_URL = "https://archidekt.com/api/decks/"
 ARCHIDEKT_URL_SUFFIX = "/small/"
-ARCHIDEKT_URL_MATCH = "archidekt.com"
+ARCHIDEKT_URL_MATCH = "archidekt%.com"
 
-GOLDFISH_URL_MATCH = "mtggoldfish.com"
+GOLDFISH_URL_MATCH = "mtggoldfish%.com"
 
-MOXFIELD_URL_MATCH = "moxfield.com"
+MOXFIELD_BASE_URL = "https://api.moxfield.com/v1/decks/all/"
+MOXFIELD_URL_SUFFIX = "/"
+MOXFIELD_URL_MATCH = "moxfield%.com"
 
 SCRYFALL_ID_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_MULTIVERSE_BASE_URL = "https://api.scryfall.com/cards/multiverse/"
@@ -147,8 +149,12 @@ local function spawnDeck(cards, name, position, flipped, onFullySpawned, onError
 
             if cardObjects[1] and cardObjects[2] then
                 deckObject = cardObjects[1].putObject(cardObjects[2])
-                deckObject.setPosition(position)
-                deckObject.setName(name)
+                if success and deckObject then
+                    deckObject.setPosition(position)
+                    deckObject.setName(name)
+                else
+                    deckObject = cardObjects[1]
+                end
             else
                 deckObject = cardObjects[1]
             end
@@ -257,7 +263,7 @@ local function queryCard(cardID, forceNameQuery, onSuccess, onError)
 end
 
 -- Queries card data for all cards.
-local function fetchCardData(cards, onComplete)
+local function fetchCardData(cards, onComplete, onError)
     local sem = 0
     local function incSem() sem = sem + 1 end
     local function decSem() sem = sem - 1 end
@@ -298,12 +304,12 @@ local function fetchCardData(cards, onComplete)
         function() onComplete(cardData, tokenIDs) end,
         function() return (sem == 0) end,
         30,
-        function() printErr("Error loading card images... timed out.") end
+        function() onError("Error loading card images... timed out.") end
     )
 end
 
 -- Queries for the given card IDs, collates deck, and spawns objects.
-local function loadDeck(cardIDs, deckName, onComplete)
+local function loadDeck(cardIDs, deckName, onComplete, onError)
     local maindeckPosition = self.positionToWorld(MAINDECK_POSITION_OFFSET)
     local doublefacePosition = self.positionToWorld(DOUBLEFACE_POSITION_OFFSET)
     local sideboardPosition = self.positionToWorld(SIDEBOARD_POSITION_OFFSET)
@@ -397,10 +403,10 @@ local function loadDeck(cardIDs, deckName, onComplete)
                 function() onComplete() end,
                 function() return (sem == 0) end,
                 10,
-                function() printErr("Error spawning deck objects... timed out.") end
+                function() onError("Error spawning deck objects... timed out.") end
             )
-        end)
-    end)
+        end, onError)
+    end, onError)
 end
 
 ------ DECK BUILDER SCRAPING
@@ -570,7 +576,7 @@ end
 
 local function queryDeckArchidekt(deckID, onSuccess, onError)
     if not deckID or string.len(deckID) == 0 then
-        onError("Invalid archidekt deck ID: " .. deckID)
+        onError("Invalid archidekt deck: " .. deckID)
         return
     end
 
@@ -603,7 +609,7 @@ local function queryDeckArchidekt(deckID, onSuccess, onError)
             onError("Empty response from archidekt.")
             return
         elseif not data.cards then
-            onError("Empty response from archidekt. Did you enter a valid deck ID?")
+            onError("Empty response from archidekt. Did you enter a valid deck URL?")
             return
         end
 
@@ -619,6 +625,100 @@ local function queryDeckArchidekt(deckID, onSuccess, onError)
                     name = card.card.oracleCard.name,
                     scryfallID = card.card.uid,
                 }
+            end
+        end
+
+        onSuccess(cards, deckName)
+    end)
+end
+
+local function parseDeckIDMoxfield(s)
+    local urlSuffix = s:match("moxfield%.com/decks/(.*)")
+    if urlSuffix then
+        return urlSuffix:match("([^%s%?/$]*)")
+    else
+        return nil
+    end
+end
+
+local function queryDeckMoxfield(deckID, onSuccess, onError)
+    if not deckID or string.len(deckID) == 0 then
+        onError("Invalid moxfield deck: " .. deckID)
+        return
+    end
+
+    local url = MOXFIELD_BASE_URL .. deckID .. MOXFIELD_URL_SUFFIX
+
+    printInfo("Fetching decklist from moxfield... this is a slow one please have patience :)")
+
+    WebRequest.get(url, function(webReturn)
+        if webReturn.error then
+            if string.match(webReturn.error, "(404)") then
+                onError("Deck not found. Is it public?")
+            else
+                onError("Web request error: " .. webReturn.error)
+            end
+            return
+        elseif webReturn.is_error then
+            onError("Web request error: unknown")
+            return
+        elseif string.len(webReturn.text) == 0 then
+            onError("Web request error: empty response")
+            return
+        end
+
+        local success, data = pcall(function() return JSON.decode(webReturn.text) end)
+
+        if not success then
+            onError("Failed to parse JSON response from moxfield.")
+            return
+        elseif not data then
+            onError("Empty response from moxfield.")
+            return
+        elseif not data.name or not data.mainboard then
+            onError("Empty response from moxfield. Did you enter a valid deck URL?")
+            return
+        end
+
+        local deckName = data.name
+        local commanderIDs = {}
+        local cards = {}
+
+        for name, cardData in pairs(data.commanders or {}) do
+            if cardData.card then
+                commanderIDs[cardData.card.id] = true
+
+                table.insert(cards, {
+                    name = cardData.card.name,
+                    count = cardData.quantity,
+                    scryfallID = cardData.card.id,
+                    sideboard = false,
+                    commander = true,
+                })
+            end
+        end
+
+        for name, cardData in pairs(data.mainboard) do
+            if cardData.card and not commanderIDs[cardData.card.id] then
+                table.insert(cards, {
+                    name = cardData.card.name,
+                    count = cardData.quantity,
+                    scryfallID = cardData.card.id,
+                    sideboard = false,
+                    commander = false,
+                })
+            end
+        end
+
+        for name, cardData in pairs(data.sideboard or {}) do
+            if cardData.card and not commanderIDs[cardData.card.id] then
+                table.insert(cards, {
+                    name = cardData.card.name,
+                    count = cardData.quantity,
+                    scryfallID = cardData.card.id,
+                    sideboard = true,
+                    commander = false,
+                })
             end
         end
 
@@ -650,8 +750,8 @@ function importDeck()
             printInfo("MTGGoldfish support is coming soon! In the meantime, please export to MTG Arena, and use notebook import.")
             return 1
         elseif string.match(deckURL, MOXFIELD_URL_MATCH) then
-            printInfo("Moxfield support is coming soon! In the meantime, please export to MTG Arena, and use notebook import.")
-            return 1
+            queryDeckFunc = queryDeckMoxfield
+            deckID = parseDeckIDMoxfield(deckURL)
         else
             printInfo("Unknown deck site, sorry! Please export to MTG Arena and use notebook import.")
             return 1
@@ -667,19 +767,23 @@ function importDeck()
     lock = true
     printToAll("Starting deck import...")
 
-    queryDeckFunc(
-        deckID,
-        function(cardIDs, deckName) -- onSuccess
-            loadDeck(cardIDs, deckName, function()
-                printToAll("Deck import complete!")
-                lock = false
-            end)
+    local function onError(e)
+        printErr(e)
+        printToAll("Deck import failed.")
+        lock = false
+    end
+
+    queryDeckFunc(deckID,
+        function(cardIDs, deckName)
+            loadDeck(cardIDs, deckName,
+                function()
+                    printToAll("Deck import complete!")
+                    lock = false
+                end,
+                onError
+            )
         end,
-        function(e) -- onError
-            printErr(e)
-            printToAll("Deck import failed.")
-            lock = false
-        end
+        onError
     )
 
     return 1
