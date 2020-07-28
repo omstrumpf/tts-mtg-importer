@@ -168,6 +168,13 @@ local function spawnDeck(cards, name, position, flipped, onFullySpawned, onError
 end
 
 ------ SCRYFALL
+local function stripScryfallImageURI(uri)
+    if not uri or string.len(uri) == 0 then
+        return ""
+    end
+
+    return uri:match("(.*)%?") or ""
+end
 
 -- Parses scryfall reseponse data for a card.
 -- Returns a populated card table, a list of tokens, and an error if occured.
@@ -190,18 +197,27 @@ local function parseCardData(cardID, data)
     card.scryfallID = data.id
 
     if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" then
-        card['doubleface'] = true
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
                 name = face.name,
-                imageURI = face.image_uris.normal,
+                imageURI = stripScryfallImageURI(face.image_uris.normal),
                 oracleText = face.oracle_text,
             }
         end
+        card['doubleface'] = true
+    elseif data.layout == "double_faced_token" then
+        for i, face in ipairs(data.card_faces) do
+            card['faces'][i] = {
+                name = face.name,
+                imageURI = stripScryfallImageURI(face.image_uris.normal),
+                oracleText = face.oracle_text,
+            }
+        end
+        card['doubleface'] = false -- Not putting double-face tokens in double-face cards pile
     else
         card['faces'][1] = {
             name = data.name,
-            imageURI = data.image_uris.normal,
+            imageURI = stripScryfallImageURI(data.image_uris.normal),
             oracleText = data.oracle_text,
         }
         card['doubleface'] = false
