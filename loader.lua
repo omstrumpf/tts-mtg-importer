@@ -74,6 +74,16 @@ local function vecMult(v, s)
     return {v[1] * s, v[2] * s, v[3] * s}
 end
 
+local function valInTable(table, v)
+    for _, value in ipairs(table) do
+        if value == v then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function printErr(s)
     printToColor(s, playerColor, {r=1, g=0, b=0})
 end
@@ -633,11 +643,11 @@ local function queryDeckArchidekt(deckID, onSuccess, onError)
         local cards = {}
 
         for i, card in ipairs(data.cards) do
-            if card and card.card and not (card.category == "Maybeboard") then
+            if card and card.card and not valInTable(card.categories, "Maybeboard") then
                 cards[#cards+1] = {
                     count = card.quantity,
-                    sideboard = (card.category == "Sideboard"),
-                    commander = (card.category == "Commander"),
+                    sideboard = valInTable(card.categories, "Sideboard"),
+                    commander = valInTable(card.categories, "Commander"),
                     name = card.card.oracleCard.name,
                     scryfallID = card.card.uid,
                 }
