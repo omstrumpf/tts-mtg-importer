@@ -16,6 +16,7 @@ MOXFIELD_URL_MATCH = "moxfield%.com"
 SCRYFALL_ID_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_MULTIVERSE_BASE_URL = "https://api.scryfall.com/cards/multiverse/"
 SCRYFALL_SET_NUM_BASE_URL = "https://api.scryfall.com/cards/"
+SCRYFALL_SEARCH_BASE_URL = "https://api.scryfall.com/cards/search/?q="
 SCRYFALL_NAME_BASE_URL = "https://api.scryfall.com/cards/named/?exact="
 
 DECK_SOURCE_URL = "url"
@@ -244,15 +245,18 @@ local function queryCard(cardID, forceNameQuery, onSuccess, onError)
     local query_url
 
     if forceNameQuery then
-        query_url = SCRYFALL_NAME_BASE_URL .. cardID['name']
+        query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
     elseif cardID.scryfallID and string.len(cardID.scryfallID) > 0 then
         query_url = SCRYFALL_ID_BASE_URL .. cardID.scryfallID
     elseif cardID.multiverseID and string.len(cardID.multiverseID) > 0 then
         query_url = SCRYFALL_MULTIVERSE_BASE_URL .. cardID.multiverseID
     elseif cardID.setCode and string.len(cardID.setCode) > 0 and cardID.collectorNum and string.len(cardID.collectorNum) > 0 then
         query_url = SCRYFALL_SET_NUM_BASE_URL .. string.lower(cardID.setCode) .. "/" .. cardID.collectorNum
+    elseif cardID.setCode and string.len(cardID.setCode) > 0 then
+        query_string = "order:released s:" .. string.lower(cardID.setCode) .. " " .. cardID.name
+        query_url = SCRYFALL_SEARCH_BASE_URL .. query_string
     else
-        query_url = SCRYFALL_NAME_BASE_URL .. cardID['name']
+        query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
     end
 
     webRequest = WebRequest.get(query_url, function(webReturn)
@@ -275,6 +279,16 @@ local function queryCard(cardID, forceNameQuery, onSuccess, onError)
         elseif data.object == "error" then
             onError("failed to find card")
             return
+        end
+
+        -- Grab the first card if response is a list
+        if data.object == "list" then
+            if data.total_cards == 0 or not data.data or not data.data[1] then
+                onError("failed to find card")
+                return
+            end
+
+            data = data.data[1]
         end
 
         local card, tokens, err = parseCardData(cardID, data)
@@ -462,7 +476,11 @@ local function queryDeckNotebook(_, onSuccess, onError)
             elseif line == "Deck" then
                 mode = "deck"
             else
-                local count, name, setCode, collectorNum = string.match(line, "(%d+) ([^%(%)]+) %(([%l%u]+)%) (%d+)")
+                local count, name, setCode, collectorNum = string.match(line, "(%d+) ([^%(%)]+) %(([%d%l%u]+)%) ([%d%l%u]+)")
+
+                if not count or not name then
+                    count, name, setCode = string.match(line, "(%d+) ([^%(%)]+) %(([%d%l%u]+)%)")
+                end
 
                 if not count or not name then
                     count, name = string.match(line, "(%d+) ([^%(%)]+)")
