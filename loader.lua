@@ -207,7 +207,7 @@ local function parseCardData(cardID, data)
     card.faces = {}
     card.scryfallID = data.id
 
-    if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" then
+    if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" then
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
                 name = face.name,
