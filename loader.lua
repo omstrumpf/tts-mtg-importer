@@ -119,7 +119,7 @@ local function spawnCard(face, position, flipped, onFullySpawned)
             obj.setDescription(face.oracleText)
             obj.setCustomObject({
                 face = face.imageURI,
-                back = getCardBackInputValue() or DEFAULT_CARDBACK
+                back = getCardBackInputValue()
             })
             onFullySpawned(obj)
         end)
