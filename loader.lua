@@ -28,6 +28,8 @@ SIDEBOARD_POSITION_OFFSET = {-1.47, 0.2, 0.1286}
 COMMANDER_POSITION_OFFSET = {0.7286, 0.2, -0.8257}
 TOKENS_POSITION_OFFSET = {-0.7286, 0.2, -0.8257}
 
+DEFAULT_CARDBACK = "https://gamepedia.cursecdn.com/mtgsalvation_gamepedia/f/f8/Magic_card_back.jpg?version=0ddc8d41c3b69c2c3c4bb5d72669ffd7"
+
 ------ GLOBAL STATE
 lock = false
 playerColor = nil
@@ -117,7 +119,7 @@ local function spawnCard(face, position, flipped, onFullySpawned)
             obj.setDescription(face.oracleText)
             obj.setCustomObject({
                 face = face.imageURI,
-                back = "https://gamepedia.cursecdn.com/mtgsalvation_gamepedia/f/f8/Magic_card_back.jpg?version=0ddc8d41c3b69c2c3c4bb5d72669ffd7"
+                back = getCardBackInputValue() or DEFAULT_CARDBACK
             })
             onFullySpawned(obj)
         end)
@@ -476,14 +478,22 @@ local function queryDeckNotebook(_, onSuccess, onError)
             elseif line == "Deck" then
                 mode = "deck"
             else
-                local count, name, setCode, collectorNum = string.match(line, "(%d+) ([^%(%)]+) %(([%d%l%u]+)%) ([%d%l%u]+)")
-
-                if not count or not name then
-                    count, name, setCode = string.match(line, "(%d+) ([^%(%)]+) %(([%d%l%u]+)%)")
+                -- Parse out card count if present
+                local count, countIndex = string.match(line, "^%s*(%d+)[x%*]?%s+()")
+                if count and countIndex then
+                    line = string.sub(line, countIndex)
+                else
+                    count = 1
                 end
 
-                if not count or not name then
-                    count, name = string.match(line, "(%d+) ([^%(%)]+)")
+                local name, setCode, collectorNum = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%) ([%d%l%u]+)")
+
+                if not name then
+                    name, setCode = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%)")
+                end
+
+                if not name then
+                   name = string.match(line, "([^%(%)]+)")
                 end
 
                 -- MTGA format uses DAR for dominaria for some reason, which scryfall can't find.
@@ -491,7 +501,7 @@ local function queryDeckNotebook(_, onSuccess, onError)
                     setCode = "DOM"
                 end
 
-                if count and name then
+                if name then
                     cards[i] = {
                         count = count,
                         name = name,
@@ -848,6 +858,19 @@ local function drawUI()
         value = "",
     })
 
+    self.createInput({
+        input_function = "onGetCardBackInput",
+        function_owner = self,
+        label          = "Enter card back URL",
+        alignment      = 2,
+        position       = {x=0, y=0.1, z=1.78},
+        width          = 2000,
+        height         = 100,
+        font_size      = 60,
+        validation     = 1,
+        value = "",
+    })
+
     self.createButton({
         click_function = "onLoadDeckURLButton",
         function_owner = self,
@@ -875,6 +898,7 @@ local function drawUI()
         font_color     = {r=1, b=1, g=1},
         tooltip        = "Click to load deck from notebook",
     })
+
 end
 
 function getDeckInputValue()
@@ -888,6 +912,19 @@ function getDeckInputValue()
 end
 
 function onLoadDeckInput(_, _, _) end
+
+function getCardBackInputValue()
+    for i, input in pairs(self.getInputs()) do
+        if input.label == "Enter card back URL" then
+            local back = trim(input.value)
+            if back ~= "" then return back end
+        end
+    end
+
+    return DEFAULT_CARDBACK
+end
+
+function onGetCardBackInput(_, _, _) end
 
 function onLoadDeckURLButton(_, pc, _)
     if lock then
