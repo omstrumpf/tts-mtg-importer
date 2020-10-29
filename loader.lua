@@ -9,7 +9,7 @@ ARCHIDEKT_URL_MATCH = "archidekt%.com"
 
 GOLDFISH_URL_MATCH = "mtggoldfish%.com"
 
-MOXFIELD_BASE_URL = "https://api.moxfield.com/v1/decks/all/"
+MOXFIELD_BASE_URL = "https://api.moxfield.com/v2/decks/all/"
 MOXFIELD_URL_SUFFIX = "/"
 MOXFIELD_URL_MATCH = "moxfield%.com"
 
@@ -485,7 +485,7 @@ local function queryDeckNotebook(_, onSuccess, onError)
                 else
                     count = 1
                 end
-
+        
                 local name, setCode, collectorNum = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%) ([%d%l%u]+)")
 
                 if not name then
