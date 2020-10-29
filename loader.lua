@@ -476,14 +476,22 @@ local function queryDeckNotebook(_, onSuccess, onError)
             elseif line == "Deck" then
                 mode = "deck"
             else
-                local count, name, setCode, collectorNum = string.match(line, "(%d+) ([^%(%)]+) %(([%d%l%u]+)%) ([%d%l%u]+)")
-
-                if not count or not name then
-                    count, name, setCode = string.match(line, "(%d+) ([^%(%)]+) %(([%d%l%u]+)%)")
+                -- Parse out card count if present
+                local count, countIndex = string.match(line, "^%s*(%d+)[x%*]?%s+()")
+                if count and countIndex then
+                    line = string.sub(line, countIndex)
+                else
+                    count = 1
                 end
 
-                if not count or not name then
-                    count, name = string.match(line, "(%d+) ([^%(%)]+)")
+                local name, setCode, collectorNum = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%) ([%d%l%u]+)")
+
+                if not name then
+                    name, setCode = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%)")
+                end
+
+                if not name then
+                   name = string.match(line, "([^%(%)]+)")
                 end
 
                 -- MTGA format uses DAR for dominaria for some reason, which scryfall can't find.
@@ -491,7 +499,7 @@ local function queryDeckNotebook(_, onSuccess, onError)
                     setCode = "DOM"
                 end
 
-                if count and name then
+                if name then
                     cards[i] = {
                         count = count,
                         name = name,
