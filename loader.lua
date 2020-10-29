@@ -9,7 +9,7 @@ ARCHIDEKT_URL_MATCH = "archidekt%.com"
 
 GOLDFISH_URL_MATCH = "mtggoldfish%.com"
 
-MOXFIELD_BASE_URL = "https://api.moxfield.com/v1/decks/all/"
+MOXFIELD_BASE_URL = "https://api.moxfield.com/v2/decks/all/"
 MOXFIELD_URL_SUFFIX = "/"
 MOXFIELD_URL_MATCH = "moxfield%.com"
 
