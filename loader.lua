@@ -22,6 +22,9 @@ SCRYFALL_NAME_BASE_URL = "https://api.scryfall.com/cards/named/?exact="
 DECK_SOURCE_URL = "url"
 DECK_SOURCE_NOTEBOOK = "notebook"
 
+-- List available here : https://scryfall.com/docs/api/languages
+LANG = "en"
+
 MAINDECK_POSITION_OFFSET = {0.0, 0.2, 0.1286}
 DOUBLEFACE_POSITION_OFFSET = {1.47, 0.2, 0.1286}
 SIDEBOARD_POSITION_OFFSET = {-1.47, 0.2, 0.1286}
@@ -237,6 +240,53 @@ local function parseCardData(cardID, data)
     return card, tokens, nil
 end
 
+-- Query to fetch a translated card version
+-- Returns translated card data
+local function fetchTranslatedCard(cardID, setCode, cardNumber, onSuccess, onError)
+    local query_url = SCRYFALL_ID_BASE_URL .. setCode .. "/" .. cardNumber .. "/" .. LANG
+    webRequest = WebRequest.get(query_url, function(webReturn)
+        if webReturn.is_error or webReturn.error then
+            onError("Web request error: " .. webReturn.error or "unknown")
+            return
+        elseif string.len(webReturn.text) == 0 then
+            onError("empty response")
+            return
+        end
+
+        local success, data = pcall(function() return JSON.decode(webReturn.text) end)
+
+        if not success then
+            onError("failed to parse JSON response")
+            return
+        elseif not data then
+            onError("empty JSON response")
+            return
+        elseif data.object == "error" then
+            onError("failed to find card")
+            return
+        end
+
+        -- Grab the first card if response is a list
+        if data.object == "list" then
+            if data.total_cards == 0 or not data.data or not data.data[1] then
+                onError("failed to find card")
+                return
+            end
+
+            data = data.data[1]
+        end
+
+        local card, tokens, err = parseCardData(cardID, data)
+
+        if err then
+            onError(err)
+            return
+        end
+
+        onSuccess(card, tokens)
+    end)
+end
+
 -- Queries scryfall by the [cardID].
 -- cardID must define at least one of scryfallID, multiverseID, or name.
 -- if forceNameQuery is true, will query scryfall by card name ignoring other data.
@@ -289,6 +339,20 @@ local function queryCard(cardID, forceNameQuery, onSuccess, onError)
             end
 
             data = data.data[1]
+        end
+
+        -- If default language isn't English, request the translated card
+        if not (forceNameQuery or LANG == "en") then
+            fetchTranslatedCard(
+                cardID,
+                data.set,
+                data.collector_number,
+                onSuccess,
+                function(errorMessage)
+                    printErr(cardID.name .. " translation missing, printing it in English")
+                end
+            )
+            return
         end
 
         local card, tokens, err = parseCardData(cardID, data)
