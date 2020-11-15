@@ -13,6 +13,9 @@ MOXFIELD_BASE_URL = "https://api.moxfield.com/v2/decks/all/"
 MOXFIELD_URL_SUFFIX = "/"
 MOXFIELD_URL_MATCH = "moxfield%.com"
 
+DECKSTATS_URL_SUFFIX = "?include_comments=1&export_mtgarena=1"
+DECKSTATS_URL_MATCH = "deckstats%.net"
+
 SCRYFALL_ID_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_MULTIVERSE_BASE_URL = "https://api.scryfall.com/cards/multiverse/"
 SCRYFALL_SET_NUM_BASE_URL = "https://api.scryfall.com/cards/"
@@ -44,16 +47,26 @@ local function iterateLines(s)
         return ipairs({})
     end
 
-    if string.sub(s, -1) ~= '\n' then
+    if s:sub(-1) ~= '\n' then
         s = s .. '\n'
     end
 
-    local success, line = pcall(function() return string.gmatch(s, "(.-)\n") end)
+    local pos = 1
+    return function ()
+        if not pos then return nil end
 
-    if success then
+        local p1, p2 = s:find("\r?\n", pos)
+
+        local line
+        if p1 then
+            line = s:sub(pos, p1 - 1)
+            pos = p2 + 1
+        else
+            line = s:sub(pos)
+            pos = nil
+        end
+
         return line
-    else
-        return ipairs({})
     end
 end
 
@@ -450,6 +463,33 @@ local function loadDeck(cardIDs, deckName, onComplete, onError)
 end
 
 ------ DECK BUILDER SCRAPING
+local function parseMTGALine(line)
+    -- Parse out card count if present
+    local count, countIndex = string.match(line, "^%s*(%d+)[x%*]?%s+()")
+    if count and countIndex then
+        line = string.sub(line, countIndex)
+    else
+        count = 1
+    end
+
+    local name, setCode, collectorNum = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%) ([%d%l%u]+)")
+
+    if not name then
+        name, setCode = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%)")
+    end
+
+    if not name then
+       name = string.match(line, "([^%(%)]+)")
+    end
+
+    -- MTGA format uses DAR for dominaria for some reason, which scryfall can't find.
+    if setCode == "DAR" then
+        setCode = "DOM"
+    end
+
+    return name, count, setCode, collectorNum
+end
+
 local function queryDeckNotebook(_, onSuccess, onError)
     local bookContents = readNotebookForColor(playerColor)
 
@@ -466,8 +506,6 @@ local function queryDeckNotebook(_, onSuccess, onError)
     local i = 1
     local mode = "deck"
     for line in iterateLines(bookContents) do
-        line = string.gsub(line, "[\n\r]", "")
-
         if string.len(line) > 0 then
             if line == "Commander" then
                 mode = "commander"
@@ -476,28 +514,7 @@ local function queryDeckNotebook(_, onSuccess, onError)
             elseif line == "Deck" then
                 mode = "deck"
             else
-                -- Parse out card count if present
-                local count, countIndex = string.match(line, "^%s*(%d+)[x%*]?%s+()")
-                if count and countIndex then
-                    line = string.sub(line, countIndex)
-                else
-                    count = 1
-                end
-
-                local name, setCode, collectorNum = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%) ([%d%l%u]+)")
-
-                if not name then
-                    name, setCode = string.match(line, "([^%(%)]+) %(([%d%l%u]+)%)")
-                end
-
-                if not name then
-                   name = string.match(line, "([^%(%)]+)")
-                end
-
-                -- MTGA format uses DAR for dominaria for some reason, which scryfall can't find.
-                if setCode == "DAR" then
-                    setCode = "DOM"
-                end
+                local name, count, setCode, collectorNum = parseMTGALine(line)
 
                 if name then
                     cards[i] = {
@@ -580,8 +597,6 @@ local function queryDeckTappedout(slug, onSuccess, onError)
             local i = 1
             local sb = false
             for line in iterateLines(multiverseData) do
-                line = string.gsub(line, "[\n\r]", "")
-
                 if string.len(line) > 0 then
                     if line == "SB:" then
                         sb = true
@@ -602,8 +617,6 @@ local function queryDeckTappedout(slug, onSuccess, onError)
             local i = 1
             local sb = false
             for line in iterateLines(txtData) do
-                line = string.gsub(line, "[\n\r]", "")
-
                 if string.len(line) > 0 then
                     if line == "Sideboard:" then
                         sb = true
@@ -778,6 +791,80 @@ local function queryDeckMoxfield(deckID, onSuccess, onError)
     end)
 end
 
+local function parseDeckIDDeckstats(s)
+    local deckURL = s:match("(deckstats%.net/decks/%d*/[^/]*)")
+    return deckURL
+end
+
+local function queryDeckDeckstats(deckURL, onSuccess, onError)
+    if not deckURL or string.len(deckURL) == 0 then
+        onError("Invalid deckstats URL: " .. deckURL)
+        return
+    end
+
+    local url = deckURL .. DECKSTATS_URL_SUFFIX
+
+    printInfo("Fetching decklist from deckstats...")
+
+    WebRequest.get(url, function(webReturn)
+        if webReturn.error then
+            if string.match(webReturn.error, "(404)") then
+                onError("Deck not found. Is it public?")
+            else
+                onError("Web request error: " .. webReturn.error)
+            end
+            return
+        elseif webReturn.is_error then
+            onError("Web request error: unknown")
+            return
+        elseif string.len(webReturn.text) == 0 then
+            onError("Web request error: empty response")
+            return
+        end
+
+        local name = deckURL:match("deckstats%.net/decks/%d*/%d*-([^/?]*)")
+
+        local cards = {}
+
+        local i = 1
+        local mode = "deck"
+        for line in iterateLines(webReturn.text) do
+            if string.len(line) == 0 then
+                mode = "sideboard"
+            else
+                local commentPos = line:find("#")
+                if commentPos then
+                    line = line:sub(1, commentPos)
+                end
+
+                local name, count, setCode, collectorNum = parseMTGALine(line)
+
+                if name then
+                    cards[i] = {
+                      count = count,
+                      name = name,
+                      setCode = setCode,
+                      collectorNum = collectorNum,
+                      sideboard = (mode == "sideboard"),
+                      commander = false
+                    }
+
+                    i = i + 1
+                end
+            end
+        end
+
+        -- This sucks... but the arena export format is the only one that gives
+        -- me full data on printings and this is the best way I've found to tell
+        -- if its a commander deck.
+        if #cards >= 90 then
+            cards[1].commander = true
+        end
+
+        onSuccess(cards, name)
+    end)
+end
+
 function importDeck()
     if lock then
         printErr("Error: Deck import started while importer locked.")
@@ -804,6 +891,9 @@ function importDeck()
         elseif string.match(deckURL, MOXFIELD_URL_MATCH) then
             queryDeckFunc = queryDeckMoxfield
             deckID = parseDeckIDMoxfield(deckURL)
+        elseif string.match(deckURL, DECKSTATS_URL_MATCH) then
+            queryDeckFunc = queryDeckDeckstats
+            deckID = parseDeckIDDeckstats(deckURL)
         else
             printInfo("Unknown deck site, sorry! Please export to MTG Arena and use notebook import.")
             return 1
