@@ -38,6 +38,8 @@ lock = false
 playerColor = nil
 deckSource = nil
 advanced = false
+valCardBackURL = ""
+valDeckURL = ""
 
 ------ UTILITY
 local function trim(s)
@@ -133,7 +135,7 @@ local function spawnCard(face, position, flipped, onFullySpawned)
             obj.setDescription(face.oracleText)
             obj.setCustomObject({
                 face = face.imageURI,
-                back = getCardBackInputValue()
+                back = getCardBack()
             })
             onFullySpawned(obj)
         end)
@@ -936,8 +938,6 @@ end
 
 ------ UI
 local function drawUI()
-    local _deckURL = ""
-    local _cardBackURL = ""
     local _inputs = self.getInputs()
     if _inputs ~= nil then
         for i, input in pairs(self.getInputs()) do
@@ -994,7 +994,7 @@ local function drawUI()
     self.createButton({
         click_function = "onToggleAdvancedButton",
         function_owner = self,
-        label          = "⚙",
+        label          = "...",
         position       = {2.25, 0.1, 1.15},
         rotation       = {0, 0, 0},
         width          = 160,
@@ -1033,7 +1033,7 @@ end
 
 function onLoadDeckInput(_, _, _) end
 
-function getCardBackInputValue()
+function getCardBack()
   for i, input in pairs(self.getInputs()) do
       if input.label == "Enter card back URL" then
           local back = trim(input.value)
