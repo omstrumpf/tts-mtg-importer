@@ -31,10 +31,15 @@ SIDEBOARD_POSITION_OFFSET = {-1.47, 0.2, 0.1286}
 COMMANDER_POSITION_OFFSET = {0.7286, 0.2, -0.8257}
 TOKENS_POSITION_OFFSET = {-0.7286, 0.2, -0.8257}
 
+DEFAULT_CARDBACK = "https://gamepedia.cursecdn.com/mtgsalvation_gamepedia/f/f8/Magic_card_back.jpg?version=0ddc8d41c3b69c2c3c4bb5d72669ffd7"
+
 ------ GLOBAL STATE
 lock = false
 playerColor = nil
 deckSource = nil
+advanced = false
+valCardBackURL = ""
+valDeckURL = ""
 
 ------ UTILITY
 local function trim(s)
@@ -130,7 +135,7 @@ local function spawnCard(face, position, flipped, onFullySpawned)
             obj.setDescription(face.oracleText)
             obj.setCustomObject({
                 face = face.imageURI,
-                back = "https://gamepedia.cursecdn.com/mtgsalvation_gamepedia/f/f8/Magic_card_back.jpg?version=0ddc8d41c3b69c2c3c4bb5d72669ffd7"
+                back = getCardBack()
             })
             onFullySpawned(obj)
         end)
@@ -933,6 +938,18 @@ end
 
 ------ UI
 local function drawUI()
+    local _inputs = self.getInputs()
+    if _inputs ~= nil then
+        for i, input in pairs(self.getInputs()) do
+            if input.label == "Enter card back URL" then
+                valCardBackURL = input.value
+            elseif input.label == "Enter deck URL, or load from Notebook." then
+                valDeckURL = input.value
+            end
+        end
+    end
+    self.clearInputs()
+    self.clearButtons()
     self.createInput({
         input_function = "onLoadDeckInput",
         function_owner = self,
@@ -943,7 +960,7 @@ local function drawUI()
         height         = 100,
         font_size      = 60,
         validation     = 1,
-        value = "",
+        value = valDeckURL,
     })
 
     self.createButton({
@@ -973,6 +990,35 @@ local function drawUI()
         font_color     = {r=1, b=1, g=1},
         tooltip        = "Click to load deck from notebook",
     })
+
+    self.createButton({
+        click_function = "onToggleAdvancedButton",
+        function_owner = self,
+        label          = "...",
+        position       = {2.25, 0.1, 1.15},
+        rotation       = {0, 0, 0},
+        width          = 160,
+        height         = 160,
+        font_size      = 100,
+        color          = {0.5, 0.5, 0.5},
+        font_color     = {r=1, b=1, g=1},
+        tooltip        = "Click to open advanced menu",
+    })
+
+    if advanced then
+        self.createInput({
+            input_function = "onGetCardBackInput",
+            function_owner = self,
+            label          = "Enter card back URL",
+            alignment      = 2,
+            position       = {x=0, y=0.1, z=1.78},
+            width          = 2000,
+            height         = 100,
+            font_size      = 60,
+            validation     = 1,
+            value = valCardBackURL,
+        })
+    end
 end
 
 function getDeckInputValue()
@@ -986,6 +1032,19 @@ function getDeckInputValue()
 end
 
 function onLoadDeckInput(_, _, _) end
+
+function getCardBack()
+  for i, input in pairs(self.getInputs()) do
+      if input.label == "Enter card back URL" then
+          local back = trim(input.value)
+          if back ~= "" then return back end
+      end
+  end
+
+  return DEFAULT_CARDBACK
+end
+
+function onGetCardBackInput(_, _, _) end
 
 function onLoadDeckURLButton(_, pc, _)
     if lock then
@@ -1009,6 +1068,11 @@ function onLoadDeckNotebookButton(_, pc, _)
     deckSource = DECK_SOURCE_NOTEBOOK
 
     startLuaCoroutine(self, "importDeck")
+end
+
+function onToggleAdvancedButton(_, _, _)
+    advanced = not advanced
+    drawUI()
 end
 
 ------ TTS CALLBACKS
