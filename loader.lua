@@ -38,8 +38,7 @@ lock = false
 playerColor = nil
 deckSource = nil
 advanced = false
-valCardBackURL = ""
-valDeckURL = ""
+cardBackURL = ""
 
 ------ UTILITY
 local function trim(s)
@@ -939,12 +938,14 @@ end
 ------ UI
 local function drawUI()
     local _inputs = self.getInputs()
+    local deckURL = ""
+
     if _inputs ~= nil then
         for i, input in pairs(self.getInputs()) do
             if input.label == "Enter card back URL" then
-                valCardBackURL = input.value
+                cardBackURL = input.value
             elseif input.label == "Enter deck URL, or load from Notebook." then
-                valDeckURL = input.value
+                deckURL = input.value
             end
         end
     end
@@ -960,7 +961,7 @@ local function drawUI()
         height         = 100,
         font_size      = 60,
         validation     = 1,
-        value = valDeckURL,
+        value = deckURL,
     })
 
     self.createButton({
@@ -1016,7 +1017,7 @@ local function drawUI()
             height         = 100,
             font_size      = 60,
             validation     = 1,
-            value = valCardBackURL,
+            value = cardBackURL,
         })
     end
 end
@@ -1041,7 +1042,11 @@ function getCardBack()
       end
   end
 
-  return DEFAULT_CARDBACK
+  if not cardBackURL or string.len(cardBackURL) == 0 then
+      return DEFAULT_CARDBACK
+  else
+      return cardBackURL
+  end
 end
 
 function onGetCardBackInput(_, _, _) end
