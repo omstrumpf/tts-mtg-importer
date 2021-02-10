@@ -223,35 +223,67 @@ local function parseCardData(cardID, data)
     card.name = data.name
     card.faces = {}
     card.scryfallID = data.id
+    card.oracleID = data.oracle_id
+
+    -- pieHere, reformat of name and description for cards
+    -- gets DFC info better
+    -- allows searching a deck by type,cmc,
+    -- works nicely with the Encoder mod, and various other functions relying on finding CMC, type etc in the name field
+    local c=data
+    c.oracle=''
+    if c.card_faces then
+      for _,f in ipairs(c.card_faces) do
+        f.name=f.name:gsub('"','')..'\n'..f.type_line..' '..c.cmc..'CMC'
+        if _==1 then
+          c.name=f.name
+        end
+        c.oracle=c.oracle..f.name..'\n'..setOracle(f)..(_==#c.card_faces and ''or'\n')
+      end
+    else
+      c.name=c.name:gsub('"','')..'\n'..c.type_line..' '..c.cmc..'CMC'
+      c.oracle=setOracle(c)
+    end
 
     if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" then
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
-                name = face.name,
-                imageURI = stripScryfallImageURI(face.image_uris.normal),
-                oracleText = face.oracle_text,
+                imageURI = stripScryfallImageURI(face.image_uris.large),
+                name = c.name,
+                oracleText = c.oracle,
             }
         end
         card['doubleface'] = true
     elseif data.layout == "double_faced_token" then
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
-                name = face.name,
-                imageURI = stripScryfallImageURI(face.image_uris.normal),
-                oracleText = face.oracle_text,
+                imageURI = stripScryfallImageURI(face.image_uris.large),
+                name = c.name,
+                oracleText = c.oracle,
             }
         end
         card['doubleface'] = false -- Not putting double-face tokens in double-face cards pile
     else
         card['faces'][1] = {
-            name = data.name,
-            imageURI = stripScryfallImageURI(data.image_uris.normal),
-            oracleText = data.oracle_text,
+            imageURI = stripScryfallImageURI(data.image_uris.large),
+            name = c.name,
+            oracleText = c.oracle,
         }
         card['doubleface'] = false
     end
 
     return card, tokens, nil
+end
+
+-- pieHere, a support function for getting pow/tou/loyalty into oracle text (used by Tyrants Easy Counters for MTG Encoder)
+function setOracle(c)
+  local n='\n[b]'
+  if c.power then
+    n=n..c.power..'/'..c.toughness
+  elseif c.loyalty then
+    n=n..tostring(c.loyalty)
+  else n='[b]'
+  end
+  return c.oracle_text:gsub('\"',"'")..n..'[/b]'
 end
 
 -- Queries scryfall by the [cardID].
