@@ -115,7 +115,7 @@ end
 -- Spawns the given card [face] at [position].
 -- Card will be face down if [flipped].
 -- Calls [onFullySpawned] when the object is spawned.
-local function spawnCard(face, position, flipped, onFullySpawned)
+local function spawnCard(oracleID, face, position, flipped, onFullySpawned)
     local rotation
     if flipped then
         rotation = vecSum(self.getRotation(), {0, 0, 180})
@@ -130,6 +130,7 @@ local function spawnCard(face, position, flipped, onFullySpawned)
         position = position,
         scale = vecMult(self.getScale(), (1 / 3.5)),
         callback_function = (function(obj)
+            obj.memo=oracleID            --pieHere, adding oracleID to memo field of cards, for Amuzet's print alt art compatability
             obj.setName(face.name)
             obj.setDescription(face.oracleText)
             obj.setCustomObject({
@@ -163,7 +164,7 @@ local function spawnDeck(cards, name, position, flipped, onFullySpawned, onError
 
             for _, face in ipairs(card.faces) do
                 incSem()
-                spawnCard(face, position, flipped, function(obj)
+                spawnCard(card.oracleID, face, position, flipped, function(obj)     --pieHere, adding oracleID to memo field of cards, for Amuzet's print alt art compatability
                     table.insert(cardObjects, obj)
                     decSem()
                 end)
