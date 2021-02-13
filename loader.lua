@@ -74,6 +74,14 @@ local function iterateLines(s)
     end
 end
 
+local function underline(s)
+    if not s or string.len(s) == 0 then
+        return ""
+    end
+
+    return s .. '\n' .. string.rep('-', string.len(s)) .. '\n'
+end
+
 local function readNotebookForColor(playerColor)
     for i, tab in ipairs(Notes.getNotebookTabs()) do
         if tab.title == playerColor and tab.color == playerColor then
@@ -115,7 +123,7 @@ end
 -- Spawns the given card [face] at [position].
 -- Card will be face down if [flipped].
 -- Calls [onFullySpawned] when the object is spawned.
-local function spawnCard(face, position, flipped, onFullySpawned)
+local function spawnCard(oracleID, face, position, flipped, onFullySpawned)
     local rotation
     if flipped then
         rotation = vecSum(self.getRotation(), {0, 0, 180})
@@ -130,6 +138,7 @@ local function spawnCard(face, position, flipped, onFullySpawned)
         position = position,
         scale = vecMult(self.getScale(), (1 / 3.5)),
         callback_function = (function(obj)
+            obj.memo = oracleID
             obj.setName(face.name)
             obj.setDescription(face.oracleText)
             obj.setCustomObject({
@@ -163,7 +172,7 @@ local function spawnDeck(cards, name, position, flipped, onFullySpawned, onError
 
             for _, face in ipairs(card.faces) do
                 incSem()
-                spawnCard(face, position, flipped, function(obj)
+                spawnCard(card.oracleID, face, position, flipped, function(obj)
                     table.insert(cardObjects, obj)
                     decSem()
                 end)
@@ -204,6 +213,54 @@ local function stripScryfallImageURI(uri)
     return uri:match("(.*)%?") or ""
 end
 
+-- Returns a nicely formatted card name with type_line and cmc
+local function getAugmentedName(cardData)
+    local name = cardData.name:gsub('"', '') or ""
+
+    if cardData.type_line then
+        name = name .. '\n' .. cardData.type_line
+    end
+
+    if cardData.cmc then
+        name = name .. '\n' .. cardData.cmc .. ' CMC'
+    end
+
+    return name
+end
+
+-- Returns a nicely formatted oracle text with power/toughness or loyalty
+-- if present
+local function getAugmentedOracleText(cardData)
+    local oracleText = cardData.oracle_text:gsub('"', "'")
+
+    if cardData.power and cardData.toughness then
+        oracleText = oracleText .. '\n[b]' .. cardData.power .. '/' .. cardData.toughness .. '[/b]'
+    elseif cardData.loyalty then
+        oracleText = oracleText .. '\n[b]' .. tostring(cardData.loyalty) .. '[/b]'
+    end
+
+    return oracleText
+end
+
+-- Collects oracle text from multiple faces if present
+local function collectOracleText(cardData)
+    local oracleText = ""
+
+    if cardData.card_faces then
+        for i, face in ipairs(cardData.card_faces) do
+            oracleText = oracleText .. underline(face.name) .. getAugmentedOracleText(face)
+
+            if i < #cardData.card_faces then
+                oracleText = oracleText .. '\n\n'
+            end
+        end
+    else
+        oracleText = getAugmentedOracleText(cardData)
+    end
+
+    return oracleText
+end
+
 -- Parses scryfall reseponse data for a card.
 -- Returns a populated card table, a list of tokens, and an error if occured.
 local function parseCardData(cardID, data)
@@ -220,33 +277,35 @@ local function parseCardData(cardID, data)
     end
 
     local card = cardID
-    card.name = data.name
+    card.name = getAugmentedName(data)
+    card.oracleText = collectOracleText(data)
     card.faces = {}
     card.scryfallID = data.id
+    card.oracleID = data.oracle_id
 
     if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" then
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
-                name = face.name,
-                imageURI = stripScryfallImageURI(face.image_uris.normal),
-                oracleText = face.oracle_text,
+                imageURI = stripScryfallImageURI(face.image_uris.large),
+                name = getAugmentedName(face),
+                oracleText = card.oracleText
             }
         end
         card['doubleface'] = true
     elseif data.layout == "double_faced_token" then
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
-                name = face.name,
-                imageURI = stripScryfallImageURI(face.image_uris.normal),
-                oracleText = face.oracle_text,
+                imageURI = stripScryfallImageURI(face.image_uris.large),
+                name = getAugmentedName(face),
+                oracleText = card.oracleText,
             }
         end
         card['doubleface'] = false -- Not putting double-face tokens in double-face cards pile
     else
         card['faces'][1] = {
-            name = data.name,
-            imageURI = stripScryfallImageURI(data.image_uris.normal),
-            oracleText = data.oracle_text,
+            imageURI = stripScryfallImageURI(data.image_uris.large),
+            name = card.name,
+            oracleText = card.oracleText,
         }
         card['doubleface'] = false
     end
