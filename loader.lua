@@ -217,16 +217,12 @@ end
 local function getAugmentedName(cardData)
     local name = cardData.name:gsub('"', '') or ""
 
-    if cardData.type_line or cardData.cmc then
-        name = name .. '\n'
+    if cardData.type_line then
+        name = name .. '\n' .. cardData.type_line
+    end
 
-        if cardData.type_line then
-            name = name .. cardData.type_line
-        end
-
-        if cardData.cmc then
-            name = name .. ' ' .. cardData.cmc .. 'CMC'
-        end
+    if cardData.cmc then
+        name = name .. '\n' .. cardData.cmc .. ' CMC'
     end
 
     return name
@@ -235,15 +231,15 @@ end
 -- Returns a nicely formatted oracle text with power/toughness or loyalty
 -- if present
 local function getAugmentedOracleText(cardData)
-    local suffix = "[b]"
+    local oracleText = cardData.oracle_text:gsub('"', "'")
 
     if cardData.power and cardData.toughness then
-        suffix = suffix .. cardData.power .. '/' .. cardData.toughness
+        oracleText = oracleText .. '\n[b]' .. cardData.power .. '/' .. cardData.toughness .. '[/b]'
     elseif cardData.loyalty then
-        suffix = suffix .. tostring(cardData.loyalty)
+        oracleText = oracleText .. '\n[b]' .. tostring(cardData.loyalty) .. '[/b]'
     end
 
-    return cardData.oracleText:gsub('"',"'") .. suffix .. '[/b]'
+    return oracleText
 end
 
 -- Collects oracle text from multiple faces if present
@@ -251,8 +247,12 @@ local function collectOracleText(cardData)
     local oracleText = ""
 
     if cardData.card_faces then
-        for _, face in ipairs(cardData.card_faces) do
-            oracleText += underline(face.name) .. getAugmentedOracleText(face) .. '\n'
+        for i, face in ipairs(cardData.card_faces) do
+            oracleText = oracleText .. underline(face.name) .. getAugmentedOracleText(face)
+
+            if i < #cardData.card_faces then
+                oracleText = oracleText .. '\n\n'
+            end
         end
     else
         oracleText = getAugmentedOracleText(cardData)
@@ -287,7 +287,7 @@ local function parseCardData(cardID, data)
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
                 imageURI = stripScryfallImageURI(face.image_uris.large),
-                name = getAugmentedName(face)
+                name = getAugmentedName(face),
                 oracleText = card.oracleText
             }
         end
