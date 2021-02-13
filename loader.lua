@@ -74,6 +74,14 @@ local function iterateLines(s)
     end
 end
 
+local function underline(s)
+    if not s or string.len(s) == 0 then
+        return ""
+    end
+
+    return s .. '\n' .. string.rep('-', string.len(s)) .. '\n'
+end
+
 local function readNotebookForColor(playerColor)
     for i, tab in ipairs(Notes.getNotebookTabs()) do
         if tab.title == playerColor and tab.color == playerColor then
@@ -130,7 +138,7 @@ local function spawnCard(oracleID, face, position, flipped, onFullySpawned)
         position = position,
         scale = vecMult(self.getScale(), (1 / 3.5)),
         callback_function = (function(obj)
-            obj.memo=oracleID            --pieHere, adding oracleID to memo field of cards, for Amuzet's print alt art compatability
+            obj.memo = oracleID
             obj.setName(face.name)
             obj.setDescription(face.oracleText)
             obj.setCustomObject({
@@ -164,7 +172,7 @@ local function spawnDeck(cards, name, position, flipped, onFullySpawned, onError
 
             for _, face in ipairs(card.faces) do
                 incSem()
-                spawnCard(card.oracleID, face, position, flipped, function(obj)     --pieHere, adding oracleID to memo field of cards, for Amuzet's print alt art compatability
+                spawnCard(card.oracleID, face, position, flipped, function(obj)
                     table.insert(cardObjects, obj)
                     decSem()
                 end)
@@ -205,6 +213,54 @@ local function stripScryfallImageURI(uri)
     return uri:match("(.*)%?") or ""
 end
 
+-- Returns a nicely formatted card name with type_line and cmc
+local function getAugmentedName(cardData)
+    local name = cardData.name:gsub('"', '') or ""
+
+    if cardData.type_line or cardData.cmc then
+        name = name .. '\n'
+
+        if cardData.type_line then
+            name = name .. cardData.type_line
+        end
+
+        if cardData.cmc then
+            name = name .. ' ' .. cardData.cmc .. 'CMC'
+        end
+    end
+
+    return name
+end
+
+-- Returns a nicely formatted oracle text with power/toughness or loyalty
+-- if present
+local function getAugmentedOracleText(cardData)
+    local suffix = "[b]"
+
+    if cardData.power and cardData.toughness then
+        suffix = suffix .. cardData.power .. '/' .. cardData.toughness
+    elseif cardData.loyalty then
+        suffix = suffix .. tostring(cardData.loyalty)
+    end
+
+    return cardData.oracleText:gsub('"',"'") .. suffix .. '[/b]'
+end
+
+-- Collects oracle text from multiple faces if present
+local function collectOracleText(cardData)
+    local oracleText = ""
+
+    if cardData.card_faces then
+        for _, face in ipairs(cardData.card_faces) do
+            oracleText += underline(face.name) .. getAugmentedOracleText(face) .. '\n'
+        end
+    else
+        oracleText = getAugmentedOracleText(cardData)
+    end
+
+    return oracleText
+end
+
 -- Parses scryfall reseponse data for a card.
 -- Returns a populated card table, a list of tokens, and an error if occured.
 local function parseCardData(cardID, data)
@@ -221,36 +277,18 @@ local function parseCardData(cardID, data)
     end
 
     local card = cardID
-    card.name = data.name
+    card.name = getAugmentedName(data)
+    card.oracleText = collectOracleText(data)
     card.faces = {}
     card.scryfallID = data.id
     card.oracleID = data.oracle_id
-
-    -- pieHere, reformat of name and description for cards
-    -- gets DFC info better
-    -- allows searching a deck by type,cmc,
-    -- works nicely with the Encoder mod, and various other functions relying on finding CMC, type etc in the name field
-    local c=data
-    c.oracle=''
-    if c.card_faces then
-      for _,f in ipairs(c.card_faces) do
-        f.name=f.name:gsub('"','')..'\n'..f.type_line..' '..c.cmc..'CMC'
-        if _==1 then
-          c.name=f.name
-        end
-        c.oracle=c.oracle..f.name..'\n'..setOracle(f)..(_==#c.card_faces and ''or'\n')
-      end
-    else
-      c.name=c.name:gsub('"','')..'\n'..c.type_line..' '..c.cmc..'CMC'
-      c.oracle=setOracle(c)
-    end
 
     if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" then
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
                 imageURI = stripScryfallImageURI(face.image_uris.large),
-                name = c.name,
-                oracleText = c.oracle,
+                name = getAugmentedName(face)
+                oracleText = card.oracleText
             }
         end
         card['doubleface'] = true
@@ -258,33 +296,21 @@ local function parseCardData(cardID, data)
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
                 imageURI = stripScryfallImageURI(face.image_uris.large),
-                name = c.name,
-                oracleText = c.oracle,
+                name = getAugmentedName(face),
+                oracleText = card.oracleText,
             }
         end
         card['doubleface'] = false -- Not putting double-face tokens in double-face cards pile
     else
         card['faces'][1] = {
             imageURI = stripScryfallImageURI(data.image_uris.large),
-            name = c.name,
-            oracleText = c.oracle,
+            name = card.name,
+            oracleText = card.oracleText,
         }
         card['doubleface'] = false
     end
 
     return card, tokens, nil
-end
-
--- pieHere, a support function for getting pow/tou/loyalty into oracle text (used by Tyrants Easy Counters for MTG Encoder)
-function setOracle(c)
-  local n='\n[b]'
-  if c.power then
-    n=n..c.power..'/'..c.toughness
-  elseif c.loyalty then
-    n=n..tostring(c.loyalty)
-  else n='[b]'
-  end
-  return c.oracle_text:gsub('\"',"'")..n..'[/b]'
 end
 
 -- Queries scryfall by the [cardID].
