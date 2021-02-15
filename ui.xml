@@ -1,0 +1,19 @@
+<Defaults>
+    <Text alignment="middleLeft" color="White" minWidth="10"/>
+    <InputField alignment="middleLeft"/>
+    <Toggle alignment="middleLeft" textColor="White"/>
+    <Panel alignment="middleLeft"/>
+</Defaults>
+
+<Panel id="MTGDeckLoaderAdvancedPanel" position="80 170 -10" rotation="180 180 0" width="300" height="300">
+    <Panel position="0 0 0">
+        <Text>Card Back</Text>
+        <InputField position = "18 0 0" onEndEdit="mtgdl__onCardBackInput" placeholder="Enter card back URL"></InputField>
+    </Panel>
+
+    <Panel position="0 -40 0">
+        <Text>Language</Text>
+        <InputField position="18 0 0" onEndEdit="mtgdl__onLanguageInput" placeholder="English"></InputField>
+        <Toggle position="185 0 0" onValueChanged="mtgdl__onForceLanguageInput">Force Language</Toggle>
+    </Panel>
+</Panel>

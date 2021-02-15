@@ -32,16 +32,59 @@ COMMANDER_POSITION_OFFSET = {0.7286, 0.2, -0.8257}
 TOKENS_POSITION_OFFSET = {-0.7286, 0.2, -0.8257}
 
 DEFAULT_CARDBACK = "https://gamepedia.cursecdn.com/mtgsalvation_gamepedia/f/f8/Magic_card_back.jpg?version=0ddc8d41c3b69c2c3c4bb5d72669ffd7"
+DEFAULT_LANGUAGE = "en"
+
+LANGUAGES = {
+    ["en"] = "en",
+    ["es"] = "es",
+    ["sp"] = "sp",
+    ["fr"] = "fr",
+    ["de"] = "de",
+    ["it"] = "it",
+    ["pt"] = "pt",
+    ["ja"] = "ja",
+    ["jp"] = "ja",
+    ["ko"] = "ko",
+    ["kr"] = "ko",
+    ["ru"] = "ru",
+    ["zcs"] = "zcs",
+    ["cs"] = "zcs",
+    ["zht"] = "zht",
+    ["ph"] = "ph",
+    ["english"] = "en",
+    ["spanish"] = "es",
+    ["french"] = "fr",
+    ["german"] = "de",
+    ["italian"] = "it",
+    ["portugese"] = "pt",
+    ["japanese"] = "ja",
+    ["korean"] = "ko",
+    ["russian"] = "ru",
+    ["chinese"] = "zhs",
+    ["simplified chinese"] = "zhs",
+    ["traditional chinese"] = "zht",
+    ["phyrexian"] = "ph"
+}
+
+------ UI IDs
+UI_ADVANCED_PANEL = "MTGDeckLoaderAdvancedPanel"
+UI_CARD_BACK_INPUT = "MTGDeckLoaderCardBackInput"
+UI_LANGUAGE_INPUT = "MTGDeckLoaderLanguageInput"
+UI_FORCE_LANGUAGE_TOGGLE = "MTGDeckLoaderForceLanguageToggleID"
 
 ------ GLOBAL STATE
 lock = false
 playerColor = nil
 deckSource = nil
 advanced = false
-cardBackURL = ""
+cardBackInput = ""
+languageInput = ""
+forceLanguage = false
 
 ------ UTILITY
 local function trim(s)
+    if not s then return "" end
+
     local n = s:find"%S"
     return n and s:match(".*%S", n) or ""
 end
@@ -80,6 +123,19 @@ local function underline(s)
     end
 
     return s .. '\n' .. string.rep('-', string.len(s)) .. '\n'
+end
+
+local function shallowCopyTable(t)
+    if type(t) == 'table' then
+        local copy = {}
+        for key, val in pairs(t) do
+            copy[key] = val
+        end
+
+        return copy
+    end
+
+    return {}
 end
 
 local function readNotebookForColor(playerColor)
@@ -262,7 +318,7 @@ local function collectOracleText(cardData)
 end
 
 -- Parses scryfall reseponse data for a card.
--- Returns a populated card table, a list of tokens, and an error if occured.
+-- Returns a populated card table and a list of tokens.
 local function parseCardData(cardID, data)
     local tokens = {}
     if data.all_parts and not (data.layout == "token") then
@@ -276,12 +332,15 @@ local function parseCardData(cardID, data)
         end
     end
 
-    local card = cardID
+    local card = shallowCopyTable(cardID)
     card.name = getAugmentedName(data)
     card.oracleText = collectOracleText(data)
     card.faces = {}
     card.scryfallID = data.id
     card.oracleID = data.oracle_id
+    card.language = data.lang
+    card.setCode = data.set
+    card.collectorNum = data.collector_number
 
     if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" then
         for i, face in ipairs(data.card_faces) do
@@ -310,24 +369,29 @@ local function parseCardData(cardID, data)
         card['doubleface'] = false
     end
 
-    return card, tokens, nil
+    return card, tokens
 end
 
 -- Queries scryfall by the [cardID].
 -- cardID must define at least one of scryfallID, multiverseID, or name.
 -- if forceNameQuery is true, will query scryfall by card name ignoring other data.
+-- if forceSetNumLangQuery is true, will query scryfall by set/num/lang ignoring other data.
 -- onSuccess is called with a populated card table, and a table of associated token cardIDs.
-local function queryCard(cardID, forceNameQuery, onSuccess, onError)
+local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess, onError)
     local query_url
+
+    local language_code = getLanguageCode()
 
     if forceNameQuery then
         query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
+    elseif forceSetNumLangQuery then
+        query_url = SCRYFALL_SET_NUM_BASE_URL .. string.lower(cardID.setCode) .. "/" .. cardID.collectorNum .. "/" .. language_code
     elseif cardID.scryfallID and string.len(cardID.scryfallID) > 0 then
         query_url = SCRYFALL_ID_BASE_URL .. cardID.scryfallID
     elseif cardID.multiverseID and string.len(cardID.multiverseID) > 0 then
         query_url = SCRYFALL_MULTIVERSE_BASE_URL .. cardID.multiverseID
     elseif cardID.setCode and string.len(cardID.setCode) > 0 and cardID.collectorNum and string.len(cardID.collectorNum) > 0 then
-        query_url = SCRYFALL_SET_NUM_BASE_URL .. string.lower(cardID.setCode) .. "/" .. cardID.collectorNum
+        query_url = SCRYFALL_SET_NUM_BASE_URL .. string.lower(cardID.setCode) .. "/" .. cardID.collectorNum .. "/" .. language_code
     elseif cardID.setCode and string.len(cardID.setCode) > 0 then
         query_string = "order:released s:" .. string.lower(cardID.setCode) .. " " .. cardID.name
         query_url = SCRYFALL_SEARCH_BASE_URL .. query_string
@@ -344,6 +408,7 @@ local function queryCard(cardID, forceNameQuery, onSuccess, onError)
             return
         end
 
+        -- TODO JSON.decode hangs the UI. Pull in a different JSON parser
         local success, data = pcall(function() return JSON.decode(webReturn.text) end)
 
         if not success then
@@ -367,18 +432,14 @@ local function queryCard(cardID, forceNameQuery, onSuccess, onError)
             data = data.data[1]
         end
 
-        local card, tokens, err = parseCardData(cardID, data)
-
-        if err then
-            onError(err)
-            return
-        end
+        local card, tokens = parseCardData(cardID, data)
 
         onSuccess(card, tokens)
     end)
 end
 
 -- Queries card data for all cards.
+-- TODO use the bulk api
 local function fetchCardData(cards, onComplete, onError)
     local sem = 0
     local function incSem() sem = sem + 1 end
@@ -395,22 +456,49 @@ local function fetchCardData(cards, onComplete, onError)
         decSem()
     end
 
-    for _, card in ipairs(cards) do
+    local function onQueryFailed(e)
+        printErr("Error querying scryfall: " .. e)
+        decSem()
+    end
+
+    local language = getLanguageCode()
+
+    for _, cardID in ipairs(cards) do
         incSem()
         queryCard(
-            card,
+            cardID,
             false,
-            onQuerySuccess,
+            false,
+            function (card, tokens) -- onSuccess
+                if card.language != language and
+                   (forceLanguage or (not cardID.scryfallID and not cardID.multiverseID)) then
+                  -- We got the wrong language, and should re-query.
+                  -- We requery if forceLanguage is enabled, or if the printing wasn't specified directly
+
+                  -- TODO currently we just hope that the target language is available in the printing
+                  -- we found. If it doesn't, we miss other printings that might have the right language.
+                  -- This isn't easily solveable, since TTS crashes if we try to do large scryfall queries.
+
+                  cardID.setCode = card.setCode
+                  cardID.collectorNum = card.collectorNum
+                  queryCard(cardID, false, true, onQuerySuccess,
+                    function(e) -- onError, use the original language
+                        onQuerySuccess(card, tokens)
+                    end
+                  )
+                else
+                    -- We got the right language
+                    onQuerySuccess(card, tokens)
+                end
+            end,
             function(e) -- onError
                 -- try again, forcing query-by-name.
                 queryCard(
-                    card,
+                    cardID,
                     true,
+                    false,
                     onQuerySuccess,
-                    function(e) -- onError
-                        printErr("Error querying scryfall for card [" .. card.name .. "]: " .. e)
-                        decSem()
-                    end
+                    onQueryFailed
                 )
             end
         )
@@ -1001,9 +1089,7 @@ local function drawUI()
 
     if _inputs ~= nil then
         for i, input in pairs(self.getInputs()) do
-            if input.label == "Enter card back URL" then
-                cardBackURL = input.value
-            elseif input.label == "Enter deck URL, or load from Notebook." then
+            if input.label == "Enter deck URL, or load from Notebook." then
                 deckURL = input.value
             end
         end
@@ -1066,18 +1152,9 @@ local function drawUI()
     })
 
     if advanced then
-        self.createInput({
-            input_function = "onGetCardBackInput",
-            function_owner = self,
-            label          = "Enter card back URL",
-            alignment      = 2,
-            position       = {x=0, y=0.1, z=1.78},
-            width          = 2000,
-            height         = 100,
-            font_size      = 60,
-            validation     = 1,
-            value = cardBackURL,
-        })
+        self.UI.show("MTGDeckLoaderAdvancedPanel")
+    else
+        self.UI.hide("MTGDeckLoaderAdvancedPanel")
     end
 end
 
@@ -1092,23 +1169,6 @@ function getDeckInputValue()
 end
 
 function onLoadDeckInput(_, _, _) end
-
-function getCardBack()
-  for i, input in pairs(self.getInputs()) do
-      if input.label == "Enter card back URL" then
-          local back = trim(input.value)
-          if back ~= "" then return back end
-      end
-  end
-
-  if not cardBackURL or string.len(cardBackURL) == 0 then
-      return DEFAULT_CARDBACK
-  else
-      return cardBackURL
-  end
-end
-
-function onGetCardBackInput(_, _, _) end
 
 function onLoadDeckURLButton(_, pc, _)
     if lock then
@@ -1137,6 +1197,36 @@ end
 function onToggleAdvancedButton(_, _, _)
     advanced = not advanced
     drawUI()
+end
+
+function getCardBack()
+    if not cardBackInput or string.len(cardBackInput) == 0 then
+        return DEFAULT_CARDBACK
+    else
+        return cardBackInput
+    end
+end
+
+function mtgdl__onCardBackInput(_, value, _)
+    cardBackInput = value
+end
+
+function getLanguageCode()
+    if not languageInput or string.len(languageInput) == 0 then
+        return DEFAULT_LANGUAGE
+    else
+        local code = LANGUAGES[string.lower(trim(languageInput))]
+
+        return (code or DEFAULT_LANGUAGE)
+    end
+end
+
+function mtgdl__onLanguageInput(_, value, _)
+    languageInput = value
+end
+
+function mtgdl__onForceLanguageInput(_, value, _)
+    forceLanguage = value
 end
 
 ------ TTS CALLBACKS
