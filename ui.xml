@@ -9,6 +9,7 @@
     <Panel position="0 0 0">
         <Text>Card Back</Text>
         <InputField position = "18 0 0" onEndEdit="mtgdl__onCardBackInput" placeholder="Enter card back URL"></InputField>
+        <Toggle position="185 0 0" onValueChanged="mtgdl__onTokenButtons" isOn="true">Token Buttons</Toggle>
     </Panel>
 
     <Panel position="0 -40 0">
