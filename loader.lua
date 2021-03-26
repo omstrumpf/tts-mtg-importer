@@ -80,7 +80,7 @@ advanced = false
 cardBackInput = ""
 languageInput = ""
 forceLanguage = false
-tokenButtons = true
+enableTokenButtons = false
 
 ------ UTILITY
 local function trim(s)
@@ -187,8 +187,8 @@ local function spawnCard(oracleID, face, position, flipped, onFullySpawned)
 --    else
         rotation = self.getRotation()
 --    end
-    
-    json = {GUID="111111", Name="Card", Transform={posX=position.x, posY=position.y, posZ=position.z, 
+
+    json = {GUID="111111", Name="Card", Transform={posX=position.x, posY=position.y, posZ=position.z,
             rotX=rotation.x, rotY=rotation.y, rotZ=rotation.z, scaleX=1, scaleY=1, scaleZ=1},
             Nickname=face.name, Description=face.oracleText, GMNotes="", ColorDiffuse={r=0.713235259, g=0.713235259, b=0.713235259},
             LayoutGroupSourtIndex=0, Locked=false, Grid=true, Snap=true, IgnoreFoW=false, MeasureMovement=false, DragSelectable=true,
@@ -196,11 +196,11 @@ local function spawnCard(oracleID, face, position, flipped, onFullySpawned)
             SidewaysCard=false, CustomDeck={}, LuaScript="", LuaScriptState="", XmlUI=""}
     json.CustomDeck["24400"]={FaceURL=face.imageURI, BackURL=getCardBack(), NumWidth=1, NumHeight=1, BackIsHidden=true, UniqueBack=false, Type=0}
 
-    if tokenButtons == true and face.savedata and face.savedata[1] and face.savedata[1].name and string.len(face.savedata[1].name) > 0 then
+    if enableTokenButtons and face.savedata and face.savedata[1] and face.savedata[1].name and string.len(face.savedata[1].name) > 0 then
             json.LuaScript="\nfunction onLoad(saved_data)\n    if saved_data ~= \"\" then\n        tokens = JSON.decode(saved_data)\n    else\n        tokens = {}\n    end\n\n    local pZ = -1\n    for i, token in ipairs(tokens) do\n        self.createButton({label = token.name,\n                            click_function = \"gt\" .. i,\n                            function_owner = self,\n                            width = math.max(400,40 * string.len(token.name) + 40),\n                            height = 100,\n                            color = {1,1,1},\n                            position = {1, 0.5, pZ},\n                            font_size = 75})\n        pZ = pZ + 0.25\n    end\n\nend\n\nfunction onSave()\n    return JSON.encode(tokens)\nend\n\nfunction gt1() getToken(1) end\nfunction gt2() getToken(2) end\nfunction gt3() getToken(3) end\nfunction gt4() getToken(4) end\n\nfunction getToken(i)\n    token = tokens[i]\n    position = self.getPosition()\n    position.y =     position.y + 0.1\n    position.x =     position.x + 2.5\r\n    spawnObject({\r\n        type = \"Card\",\r\n        sound = false,\r\n        rotation = self.getRotation(),\r\n        position = position,\r\n        scale = self.getScale(),\r\n        callback_function = (function(obj)\r\n            obj.memo = \"\"\r\n            obj.setName(token.name)\r\n            obj.setDescription(token.desc)\r\n            obj.setCustomObject({\r\n                face = token.front,\r\n                back = token.back\r\n            })\r\r\n        end)})\nend"
             json.LuaScriptState=JSON.encode(face.savedata) --[]
     end
-    
+
     local cardObj = spawnObjectJSON({json = JSON.encode(json)})
     onFullySpawned(cardObj)
     return cardObj
@@ -216,8 +216,8 @@ local function spawnCard2Face(oracleID, face1, face2, position, flipped, onFully
 --    else
         rotation = self.getRotation()
 --    end
-    
-    json = {GUID="111111", Name="Card", Transform={posX=position.x, posY=position.y, posZ=position.z, 
+
+    json = {GUID="111111", Name="Card", Transform={posX=position.x, posY=position.y, posZ=position.z,
             rotX=rotation.x, rotY=rotation.y, rotZ=rotation.z, scaleX=1, scaleY=1, scaleZ=1},
             Nickname=face1.name, Description=face1.oracleText, GMNotes="", ColorDiffuse={r=0.713235259, g=0.713235259, b=0.713235259},
             LayoutGroupSourtIndex=0, Locked=false, Grid=true, Snap=true, IgnoreFoW=false, MeasureMovement=false, DragSelectable=true,
@@ -225,12 +225,12 @@ local function spawnCard2Face(oracleID, face1, face2, position, flipped, onFully
             SidewaysCard=false, CustomDeck={}, LuaScript="", LuaScriptState="", XmlUI=""}
     json.CustomDeck["24400"]={FaceURL=face1.imageURI, BackURL=getCardBack(), NumWidth=1, NumHeight=1, BackIsHidden=true, UniqueBack=false, Type=0}
 
-    if tokenButtons == true and face1.savedata and face1.savedata[1] and face1.savedata[1].name and string.len(face1.savedata[1].name) > 0 then
+    if enableTokenButtons and face1.savedata and face1.savedata[1] and face1.savedata[1].name and string.len(face1.savedata[1].name) > 0 then
             json.LuaScript="\nfunction onLoad(saved_data)\n    if saved_data ~= \"\" then\n        tokens = JSON.decode(saved_data)\n    else\n        tokens = {}\n    end\n\n    local pZ = -1\n    for i, token in ipairs(tokens) do\n        self.createButton({label = token.name,\n                            click_function = \"gt\" .. i,\n                            function_owner = self,\n                            width = math.max(400,40 * string.len(token.name) + 40),\n                            height = 100,\n                            color = {1,1,1},\n                            position = {1, 0.5, pZ},\n                            font_size = 75})\n        pZ = pZ + 0.25\n    end\n\nend\n\nfunction onSave()\n    return JSON.encode(tokens)\nend\n\nfunction gt1() getToken(1) end\nfunction gt2() getToken(2) end\nfunction gt3() getToken(3) end\nfunction gt4() getToken(4) end\n\nfunction getToken(i)\n    token = tokens[i]\n    position = self.getPosition()\n    position.y =     position.y + 0.1\n    position.x =     position.x + 2.5\r\n    spawnObject({\r\n        type = \"Card\",\r\n        sound = false,\r\n        rotation = self.getRotation(),\r\n        position = position,\r\n        scale = self.getScale(),\r\n        callback_function = (function(obj)\r\n            obj.memo = \"\"\r\n            obj.setName(token.name)\r\n            obj.setDescription(token.desc)\r\n            obj.setCustomObject({\r\n                face = token.front,\r\n                back = token.back\r\n            })\r\r\n        end)})\nend"
             json.LuaScriptState="[".. JSON.encode(face1.savedata[1]) .. "]"
     end
-    
-    json2 = {GUID="111112", Name="Card", Transform={posX=position.x, posY=position.y, posZ=position.z, 
+
+    json2 = {GUID="111112", Name="Card", Transform={posX=position.x, posY=position.y, posZ=position.z,
             rotX=rotation.x, rotY=rotation.y, rotZ=rotation.z, scaleX=1, scaleY=1, scaleZ=1},
             Nickname=face2.name, Description=face2.oracleText, GMNotes="", ColorDiffuse={r=0.713235259, g=0.713235259, b=0.713235259},
             LayoutGroupSourtIndex=0, Locked=false, Grid=true, Snap=true, IgnoreFoW=false, MeasureMovement=false, DragSelectable=true,
@@ -238,7 +238,7 @@ local function spawnCard2Face(oracleID, face1, face2, position, flipped, onFully
             SidewaysCard=false, CustomDeck={}, LuaScript="", LuaScriptState="", XmlUI=""}
     json2.CustomDeck["24401"]={FaceURL=face2.imageURI, BackURL=getCardBack(), NumWidth=1, NumHeight=1, BackIsHidden=true, UniqueBack=false, Type=0}
 
-    if tokenButtons == true and face2.savedata and face2.savedata[1] and face2.savedata[1].name and string.len(face2.savedata[1].name) > 0 then
+    if enableTokenButtons and face2.savedata and face2.savedata[1] and face2.savedata[1].name and string.len(face2.savedata[1].name) > 0 then
             json2.LuaScript="\nfunction onLoad(saved_data)\n    if saved_data ~= \"\" then\n        tokens = JSON.decode(saved_data)\n    else\n        tokens = {}\n    end\n\n    local pZ = -1\n    for i, token in ipairs(tokens) do\n        self.createButton({label = token.name,\n                            click_function = \"gt\" .. i,\n                            function_owner = self,\n                            width = math.max(400,40 * string.len(token.name) + 40),\n                            height = 100,\n                            color = {1,1,1},\n                            position = {1, 0.5, pZ},\n                            font_size = 75})\n        pZ = pZ + 0.25\n    end\n\nend\n\nfunction onSave()\n    return JSON.encode(tokens)\nend\n\nfunction gt1() getToken(1) end\nfunction gt2() getToken(2) end\nfunction gt3() getToken(3) end\nfunction gt4() getToken(4) end\n\nfunction getToken(i)\n    token = tokens[i]\n    position = self.getPosition()\n    position.y =     position.y + 0.1\n    position.x =     position.x + 2.5\r\n    spawnObject({\r\n        type = \"Card\",\r\n        sound = false,\r\n        rotation = self.getRotation(),\r\n        position = position,\r\n        scale = self.getScale(),\r\n        callback_function = (function(obj)\r\n            obj.memo = \"\"\r\n            obj.setName(token.name)\r\n            obj.setDescription(token.desc)\r\n            obj.setCustomObject({\r\n                face = token.front,\r\n                back = token.back\r\n            })\r\r\n        end)})\nend"
             json2.LuaScriptState=JSON.encode(face2.savedata)--[]
     end
@@ -399,7 +399,7 @@ local function parseCardData(cardID, data)
                         log("Error: " ..webReturn.error or "unknown")
                         return
                     end
-                    
+
                     local success, data = pcall(function() return JSON.decode(webReturn.text) end)
                     if not success or not data or data.object == "error" then
                         log("Error: JSON Parse")
@@ -416,7 +416,7 @@ local function parseCardData(cardID, data)
                         log("Error: " ..webReturn.error or "unknown")
                         return
                     end
-                    
+
                     local success, data = pcall(function() return JSON.decode(webReturn.text) end)
                     if not success or not data or data.object == "error" then
                         log("Error: JSON Parse")
@@ -437,7 +437,7 @@ local function parseCardData(cardID, data)
     card.language = data.lang
     card.setCode = data.set
     card.collectorNum = data.collector_number
-    
+
     if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" then
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
@@ -1328,8 +1328,8 @@ function mtgdl__onForceLanguageInput(_, value, _)
     forceLanguage = value
 end
 
-function mtgdl__onTokenButtons(_, value, _)
-    tokenButtons = value
+function mtgdl__onTokenButtonsInput(_, value, _)
+    enableTokenButtons = value
 end
 
 ------ TTS CALLBACKS
