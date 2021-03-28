@@ -4,7 +4,7 @@ TAPPEDOUT_URL_SUFFIX = "/"
 TAPPEDOUT_URL_MATCH = "tappedout%.net"
 
 ARCHIDEKT_BASE_URL = "https://archidekt.com/api/decks/"
-ARCHIDEKT_URL_SUFFIX = "/small/"
+ARCHIDEKT_URL_SUFFIX = "/small/?format=json"
 ARCHIDEKT_URL_MATCH = "archidekt%.com"
 
 GOLDFISH_URL_MATCH = "mtggoldfish%.com"
@@ -26,7 +26,7 @@ DECK_SOURCE_URL = "url"
 DECK_SOURCE_NOTEBOOK = "notebook"
 
 MAINDECK_POSITION_OFFSET = {0.0, 0.2, 0.1286}
--- DOUBLEFACE_POSITION_OFFSET = {1.47, 0.2, 0.1286}
+MAYBEBOARD_POSITION_OFFSET = {1.47, 0.2, 0.1286}
 SIDEBOARD_POSITION_OFFSET = {-1.47, 0.2, 0.1286}
 COMMANDER_POSITION_OFFSET = {0.7286, 0.2, -0.8257}
 TOKENS_POSITION_OFFSET = {-0.7286, 0.2, -0.8257}
@@ -676,6 +676,7 @@ end
 local function loadDeck(cardIDs, deckName, onComplete, onError)
     local maindeckPosition = self.positionToWorld(MAINDECK_POSITION_OFFSET)
     local sideboardPosition = self.positionToWorld(SIDEBOARD_POSITION_OFFSET)
+    local maybeboardPosition = self.positionToWorld(MAYBEBOARD_POSITION_OFFSET)
     local commanderPosition = self.positionToWorld(COMMANDER_POSITION_OFFSET)
     local tokensPosition = self.positionToWorld(TOKENS_POSITION_OFFSET)
 
@@ -689,10 +690,13 @@ local function loadDeck(cardIDs, deckName, onComplete, onError)
         fetchCardData(tokenIDs, function(tokens, _)
             local maindeck = {}
             local sideboard = {}
+            local maybeboard = {}
             local commander = {}
 
             for _, card in ipairs(cards) do
-                if card.sideboard then
+                if card.maybeboard then
+                    table.insert(maybeboard, card)
+                elseif card.sideboard then
                     table.insert(sideboard, card)
                 elseif card.commander then
                     table.insert(commander, card)
@@ -703,7 +707,7 @@ local function loadDeck(cardIDs, deckName, onComplete, onError)
 
             printInfo("Spawning deck...")
 
-            local sem = 4
+            local sem = 5
             local function decSem() sem = sem - 1 end
 
             spawnDeck(maindeck, deckName, maindeckPosition, true,
@@ -717,6 +721,16 @@ local function loadDeck(cardIDs, deckName, onComplete, onError)
             )
 
             spawnDeck(sideboard, deckName .. " - sideboard", sideboardPosition, true,
+                function() -- onSuccess
+                    decSem()
+                end,
+                function(e) -- onError
+                    printErr(e)
+                    decSem()
+                end
+            )
+
+            spawnDeck(maybeboard, deckName .. " - maybeboard", maybeboardPosition, true,
                 function() -- onSuccess
                     decSem()
                 end,
@@ -973,13 +987,32 @@ local function queryDeckArchidekt(deckID, onSuccess, onError)
         end
 
         local deckName = data.name
+
+        local function isMaybeboard(card)
+            if card.categories and card.categories[1] then
+                local firstCategory = card.categories[1]
+
+                for _, category in ipairs(data.categories) do
+                    if category.name == firstCategory then
+                        if not category.includedInDeck then
+                            return true
+                        end
+                    end
+                end
+
+                return false
+            end
+        end
+
         local cards = {}
 
         for i, card in ipairs(data.cards) do
-            if card and card.card and not valInTable(card.categories, "Maybeboard") then
+
+            if card and card.card then
                 cards[#cards+1] = {
                     count = card.quantity,
                     sideboard = valInTable(card.categories, "Sideboard"),
+                    maybeboard = isMaybeboard(card),
                     commander = valInTable(card.categories, "Commander"),
                     name = card.card.oracleCard.name,
                     scryfallID = card.card.uid,
