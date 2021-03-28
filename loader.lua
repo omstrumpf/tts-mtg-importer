@@ -172,9 +172,6 @@ end
 local function jsonForCardFace(face, position)
     local rotation = self.getRotation()
 
-    -- TODO we're setting a whole bunch of extra-seeming stuff in json. Is it
-    -- really necessary?
-
     local json = {
         Name = "Card",
         Transform = {
