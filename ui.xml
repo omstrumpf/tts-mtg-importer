@@ -17,4 +17,8 @@
         <InputField position="18 0 0" onEndEdit="mtgdl__onLanguageInput" placeholder="English"></InputField>
         <Toggle position="185 0 0" onValueChanged="mtgdl__onForceLanguageInput">Force Language</Toggle>
     </Panel>
+
+    <Panel position="0 -80 0">
+        <Toggle position="-70 0 0" onValueChanged="mtgdl__onBlowCacheInput" fontSize="10">Force Redownload Images</Toggle>
+    </Panel>
 </Panel>
