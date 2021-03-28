@@ -617,7 +617,7 @@ local function fetchCardData(cards, onComplete, onError)
     end
 
     local function onQueryFailed(e)
-        printErr("Error querying scryfall: " .. e)
+        log("Error querying scryfall: " .. e)
         decSem()
     end
 
@@ -1161,7 +1161,7 @@ end
 
 function importDeck()
     if lock then
-        printErr("Error: Deck import started while importer locked.")
+        log("Error: Deck import started while importer locked.")
     end
 
     local deckURL = getDeckInputValue()
@@ -1196,7 +1196,7 @@ function importDeck()
         queryDeckFunc = queryDeckNotebook
         deckID = nil
     else
-        printErr("Error. Unknown deck source: " .. deckSource or "nil")
+        log("Error. Unknown deck source: " .. deckSource or "nil")
         return 1
     end
 
