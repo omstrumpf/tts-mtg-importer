@@ -81,6 +81,7 @@ cardBackInput = ""
 languageInput = ""
 forceLanguage = false
 enableTokenButtons = false
+blowCache = false
 
 ------ UTILITY
 local function trim(s)
@@ -371,6 +372,41 @@ local function stripScryfallImageURI(uri)
     return uri:match("(.*)%?") or ""
 end
 
+local function pickImageURI(cardData, highres_image, image_status)
+    if not cardData or not cardData.image_uris then
+        return ""
+    end
+
+    local highres_image
+    if highres_image == nil then
+        highres_image = cardData.highres_image
+    end
+
+    local image_status
+    if image_status == nil then
+        image_status = cardData.image_status
+    end
+
+    local uri = stripScryfallImageURI(cardData.image_uris.large)
+
+    local sep
+    if uri:find("?") then
+        sep = "&"
+    else
+        sep = "?"
+    end
+
+    if blowCache then
+        local cachebuster = string.gsub(tostring(Time.time), "%.", "-")
+
+        uri = uri .. sep .. "CACHEBUSTER_" .. cachebuster
+    elseif (not highres_image) or image_status != "highres_scan" then
+        uri = uri .. sep .. "LOWRES_CACHEBUSTER"
+    end
+
+    return uri
+end
+
 -- Returns a nicely formatted card name with type_line and cmc
 local function getAugmentedName(cardData)
     local name = cardData.name:gsub('"', '') or ""
@@ -448,7 +484,7 @@ local function parseCardData(cardID, data)
             table.insert(tokenData, {
                 name = data.name,
                 desc = collectOracleText(data),
-                front = stripScryfallImageURI(data.image_uris.large),
+                front = pickImageURI(data),
                 back = getCardBack()
             })
         end)
@@ -478,7 +514,7 @@ local function parseCardData(cardID, data)
     if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" or data.layout == "double_faced_token" then
         for i, face in ipairs(data.card_faces) do
             card['faces'][i] = {
-                imageURI = stripScryfallImageURI(face.image_uris.large),
+                imageURI = pickImageURI(face, data.highres_image, data.image_status),
                 name = getAugmentedName(face),
                 oracleText = card.oracleText,
                 tokenData = tokenData
@@ -486,7 +522,7 @@ local function parseCardData(cardID, data)
         end
     else
         card['faces'][1] = {
-            imageURI = stripScryfallImageURI(data.image_uris.large),
+            imageURI = pickImageURI(data),
             name = card.name,
             oracleText = card.oracleText,
             tokenData = tokenData
@@ -1338,6 +1374,10 @@ end
 
 function mtgdl__onTokenButtonsInput(_, value, _)
     enableTokenButtons = value
+end
+
+function mtgdl__onBlowCacheInput(_, value, _)
+    blowCache = value
 end
 
 ------ TTS CALLBACKS
