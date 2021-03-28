@@ -219,63 +219,65 @@ local function jsonForCardFace(face, position)
          Type = 0
      }
 
-     if enableTokenButtons and face.savedata and face.savedata[1] and face.savedata[1].name and string.len(face.savedata[1].name) > 0 then
-             json.LuaScript =
-                [[function onLoad(saved_data)
-                    if saved_data ~= "" then
-                        tokens = JSON.decode(saved_data)
-                    else
-                        tokens = {}
-                    end
-
-                    local pZ = -1
-                    for i, token in ipairs(tokens) do
-                        self.createButton({label = token.name,
-                            click_function = "gt" .. i,
-                            function_owner = self,
-                            width = math.max(400, 40 * string.len(token.name) + 40),
-                            height = 100,
-                            color = {1, 1, 1},
-                            position = {1, 0.5, pZ},
-                            font_size = 75})
-                        pZ = pZ + 0.25
-                    end
+     if enableTokenButtons and face.tokenData and face.tokenData[1] and face.tokenData[1].name and string.len(face.tokenData[1].name) > 0 then
+         json.LuaScript =
+            [[function onLoad(saved_data)
+                if saved_data ~= "" then
+                    tokens = JSON.decode(saved_data)
+                else
+                    tokens = {}
                 end
 
-                function onSave()
-                    return JSON.encode(tokens)
+                local pZ = -1.04
+                for i, token in ipairs(tokens) do
+                    self.createButton({label = token.name,
+                        click_function = "gt" .. i,
+                        function_owner = self,
+                        width = math.max(400, 40 * string.len(token.name) + 40),
+                        height = 100,
+                        color = {1, 1, 1, 0.5},
+                        hover_color = {1, 1, 1, .7},
+                        font_color = {0, 0, 0, 2},
+                        position = {.5, 0.5, pZ},
+                        font_size = 75})
+                    pZ = pZ + 0.28
                 end
+            end
 
-                function gt1() getToken(1) end
-                function gt2() getToken(2) end
-                function gt3() getToken(3) end
-                function gt4() getToken(4) end
+            function onSave()
+                return JSON.encode(tokens)
+            end
 
-                function getToken(i)
-                    token = tokens[i]
-                    position = self.getPosition()
-                    position.y = position.y + 0.1
-                    position.x = position.x + 2.5
-                    spawnObject({
-                        type = "Card",
-                        sound = false,
-                        rotation = self.getRotation(),
-                        position = position,
-                        scale = self.getScale(),
-                        callback_function = (function(obj)
-                            obj.memo = ""
-                            obj.setName(token.name)
-                            obj.setDescription(token.desc)
-                            obj.setCustomObject({
-                                face = token.front,
-                                back = token.back
-                            })
-                        end)
-                    })
-                end
-            ]]
+            function gt1() getToken(1) end
+            function gt2() getToken(2) end
+            function gt3() getToken(3) end
+            function gt4() getToken(4) end
 
-            json.LuaScriptState=JSON.encode(face.savedata)
+            function getToken(i)
+                token = tokens[i]
+                position = self.getPosition()
+                position.y = position.y + 0.1
+                position.x = position.x + 2.5
+                spawnObject({
+                    type = "Card",
+                    sound = false,
+                    rotation = self.getRotation(),
+                    position = position,
+                    scale = self.getScale(),
+                    callback_function = (function(obj)
+                        obj.memo = ""
+                        obj.setName(token.name)
+                        obj.setDescription(token.desc)
+                        obj.setCustomObject({
+                            face = token.front,
+                            back = token.back
+                        })
+                    end)
+                })
+            end
+        ]]
+
+        json.LuaScriptState=JSON.encode(face.tokenData)
      end
 
      return json
@@ -422,44 +424,46 @@ end
 
 -- Parses scryfall response data for a card.
 -- Returns a populated card table and a list of tokens.
--- TODO review these changes
 local function parseCardData(cardID, data)
     local tokens = {}
-    local savedata = {}
+    local tokenData = {}
+
+    local function addToken(name, scryfallID, uri)
+        -- Add it to the tokens list
+        table.insert(tokens, {
+            name = name,
+            scryfallID = scryfallID
+        })
+
+        -- Query for token data and save it on the card for later
+        WebRequest.get(uri, function(webReturn)
+            if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
+                log("Error: " ..webReturn.error or "unknown")
+                return
+            end
+
+            local success, data = pcall(function() return JSON.decode(webReturn.text) end)
+            if not success or not data or data.object == "error" then
+                log("Error: JSON Parse")
+                return
+            end
+
+            table.insert(tokenData, {
+                name = data.name,
+                desc = collectOracleText(data),
+                front = stripScryfallImageURI(data.image_uris.large),
+                back = getCardBack()
+            })
+        end)
+    end
+
+    -- On normal cards, check for tokens or related effects (i.e. city's blessing)
     if data.all_parts and not (data.layout == "token" or data.type_line == "Card") then
         for _, part in ipairs(data.all_parts) do
             if part.component and (part.type_line == "Card" or part.component == "token") then
-                tmp = {name = part.name, scryfallID = part.id,}
-                table.insert(tokens, tmp)
-                WebRequest.get(part.uri, function(webReturn)
-                    if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
-                        log("Error: " ..webReturn.error or "unknown")
-                        return
-                    end
-
-                    local success, data = pcall(function() return JSON.decode(webReturn.text) end)
-                    if not success or not data or data.object == "error" then
-                        log("Error: JSON Parse")
-                        return
-                    end
-                    table.insert(savedata, {name=data.name, desc=collectOracleText(data), front=stripScryfallImageURI(data.image_uris.large), back=getCardBack()})
-                end)
-            elseif part.component and string.sub(part.type_line,1,6) == "Emblem" and not (string.sub(data.type_line,1,6) == "Emblem") then
-                tmp = {name = "Emblem", scryfallID = part.id,}
-                table.insert(tokens, tmp)
-                WebRequest.get(part.uri, function(webReturn)
-                    if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
-                        log("Error: " ..webReturn.error or "unknown")
-                        return
-                    end
-
-                    local success, data = pcall(function() return JSON.decode(webReturn.text) end)
-                    if not success or not data or data.object == "error" then
-                        log("Error: JSON Parse")
-                        return
-                    end
-                    table.insert(savedata, {name="Emblem", desc=collectOracleText(data), front=stripScryfallImageURI(data.image_uris.large), back=getCardBack()})
-                end)
+                addToken(part.name, part.scryfallID, part.uri)
+            elseif part.component and (string.sub(part.type_line,1,6) == "Emblem" and not (string.sub(data.type_line,1,6) == "Emblem")) then
+                addToken("Emblem", part.scryfallID, part.uri)
             end
         end
     end
@@ -480,7 +484,7 @@ local function parseCardData(cardID, data)
                 imageURI = stripScryfallImageURI(face.image_uris.large),
                 name = getAugmentedName(face),
                 oracleText = card.oracleText,
-                savedata = savedata
+                tokenData = tokenData
             }
         end
     else
@@ -488,7 +492,7 @@ local function parseCardData(cardID, data)
             imageURI = stripScryfallImageURI(data.image_uris.large),
             name = card.name,
             oracleText = card.oracleText,
-            savedata = savedata
+            tokenData = tokenData
         }
     end
 
@@ -666,7 +670,7 @@ local function loadDeck(cardIDs, deckName, onComplete, onError)
 
             printInfo("Spawning deck...")
 
-            local sem = 5
+            local sem = 4
             local function decSem() sem = sem - 1 end
 
             spawnDeck(maindeck, deckName, maindeckPosition, true,
