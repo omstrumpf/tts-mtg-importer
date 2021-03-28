@@ -1342,5 +1342,20 @@ end
 
 ------ TTS CALLBACKS
 function onLoad()
+    self.setName("MTG Deck Loader")
+
+    self.setDescription(
+    [[
+Enter your deck URL from many online deck builders!
+
+You can also paste a decklist in MTG Arena format into your color's notebook.
+
+Currently supported sites:
+ - tappedout.net
+ - archidekt.com
+ - moxfield.com
+ - deckstats.net
+]])
+
     drawUI()
 end
