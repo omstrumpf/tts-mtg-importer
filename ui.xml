@@ -13,7 +13,7 @@
     </Panel>
 
     <Panel position="0 -40 0">
-        <Text>Language</Text>
+        <Text fontSize="10">Language (beta)</Text>
         <InputField position="18 0 0" onEndEdit="mtgdl__onLanguageInput" placeholder="English"></InputField>
         <Toggle position="185 0 0" onValueChanged="mtgdl__onForceLanguageInput">Force Language</Toggle>
     </Panel>
