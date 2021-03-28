@@ -1114,6 +1114,19 @@ local function queryDeckMoxfield(deckID, onSuccess, onError)
             end
         end
 
+        for name, cardData in pairs(data.maybeboard or {}) do
+            if cardData.card and not commanderIDs[cardData.card.id] then
+                table.insert(cards, {
+                    name = cardData.card.name,
+                    count = cardData.quantity,
+                    scryfallID = cardData.card.id,
+                    sideboard = false,
+                    maybeboard = true,
+                    commander = false,
+                })
+            end
+        end
+
         onSuccess(cards, deckName)
     end)
 end
