@@ -461,7 +461,7 @@ local function parseCardData(cardID, data)
     local tokens = {}
     local tokenData = {}
 
-    local function addToken(name, scryfallID, uri)
+    local function addToken(name, scryfallID, uri, shortName)
         -- Add it to the tokens list
         table.insert(tokens, {
             name = name,
@@ -482,7 +482,7 @@ local function parseCardData(cardID, data)
             end
 
             table.insert(tokenData, {
-                name = data.name,
+                name = shortName or name,
                 desc = collectOracleText(data),
                 front = pickImageURI(data),
                 back = getCardBack()
@@ -494,9 +494,9 @@ local function parseCardData(cardID, data)
     if data.all_parts and not (data.layout == "token" or data.type_line == "Card") then
         for _, part in ipairs(data.all_parts) do
             if part.component and (part.type_line == "Card" or part.component == "token") then
-                addToken(part.name, part.scryfallID, part.uri)
+                addToken(part.name, part.id, part.uri)
             elseif part.component and (string.sub(part.type_line,1,6) == "Emblem" and not (string.sub(data.type_line,1,6) == "Emblem")) then
-                addToken("Emblem", part.scryfallID, part.uri)
+                addToken(part.name, part.id, part.uri, "Emblem")
             end
         end
     end
