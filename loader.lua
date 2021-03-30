@@ -480,12 +480,7 @@ local function parseCardData(cardID, data, onSuccess, incSem, decSem)
                 return
             end
 
-            table.insert(tokenData, {
-                name = name,
-                desc = collectOracleText(data),
-                front = pickImageURI(data),
-                back = getCardBack()
-            })
+
             -- Add it to the tokens list
             token.name = getAugmentedName(data)
             token.oracleText = collectOracleText(data)
@@ -503,12 +498,24 @@ local function parseCardData(cardID, data, onSuccess, incSem, decSem)
                         oracleText = token.oracleText
                     }
                 end
+                table.insert(tokenData, {
+                    name = name,
+                    desc = collectOracleText(data),
+                    front = token['faces'][1].imageURI,
+                    back = token['faces'][2].imageURI
+                })
             else
                 token['faces'][1] = {
                     imageURI = pickImageURI(data),
                     name = token.name,
                     oracleText = token.oracleText
                 }
+                table.insert(tokenData, {
+                    name = name,
+                    desc = collectOracleText(data),
+                    front = token['faces'][1].imageURI,
+                    back = getCardBack()
+                })
             end
             decSem()
         end)
