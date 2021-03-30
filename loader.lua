@@ -229,6 +229,7 @@ local function jsonForCardFace(face, position)
                 local pZ = -1.04
                 for i, token in ipairs(tokens) do
                     self.createButton({label = token.name,
+                        tooltip = "Create " .. token.name .. "\n" .. token.desc,
                         click_function = "gt" .. i,
                         function_owner = self,
                         width = math.max(400, 40 * string.len(token.name) + 40),
