@@ -457,13 +457,11 @@ end
 
 -- Parses scryfall response data for a card.
 -- Returns a populated card table and a list of tokens.
-local function parseCardData(cardID, data, onSuccess)
-    local sem = 0
+local function parseCardData(cardID, data, onSuccess, incSem, decSem)
     local tokens = {}
     local tokenData = {}
-    local function incSem() sem = sem + 1 end
-    local function decSem() sem = sem - 1 end
-    local function addToken(name, scryfallID, uri)
+
+    local function addToken(name, scryfallID, uri, incSem, decSem)
         -- Add it to the tokens list
         incSem()
         local token = {name=name, scryfallID = scryfallID,}
@@ -488,6 +486,7 @@ local function parseCardData(cardID, data, onSuccess)
                 back = getCardBack()
             })
             -- Add it to the tokens list
+            token.name = getAugmentedName(data)
             token.oracleText = collectOracleText(data)
             token.faces = {}
             token.oracleID = data.oracle_id
@@ -518,9 +517,9 @@ local function parseCardData(cardID, data, onSuccess)
     if data.all_parts and not (data.layout == "token" or data.type_line == "Card") then
         for _, part in ipairs(data.all_parts) do
             if part.component and (part.type_line == "Card" or part.component == "token") then
-                addToken(part.name, part.id, part.uri)
+                addToken(part.name, part.id, part.uri, incSem, decSem)
             elseif part.component and (string.sub(part.type_line,1,6) == "Emblem" and not (string.sub(data.type_line,1,6) == "Emblem")) then
-                addToken("Emblem", part.id, part.uri)
+                addToken("Emblem", part.id, part.uri, incSem, decSem)
             end
         end
     end
@@ -551,12 +550,8 @@ local function parseCardData(cardID, data, onSuccess)
             tokenData = tokenData
         }
     end
-    Wait.condition(
-        function() onSuccess(card, tokens) end,
-        function() return (sem == 0) end,
-        30,
-        function() onError("Error loading token data... timed out on "..data.name) end
-    )
+
+    onSuccess(card, tokens)
 end
 
 -- Queries scryfall by the [cardID].
@@ -564,7 +559,7 @@ end
 -- if forceNameQuery is true, will query scryfall by card name ignoring other data.
 -- if forceSetNumLangQuery is true, will query scryfall by set/num/lang ignoring other data.
 -- onSuccess is called with a populated card table, and a table of associated token cardIDs.
-local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess, onError)
+local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess, onError, incSem, decSem)
     local query_url
 
     local language_code = getLanguageCode()
@@ -619,7 +614,7 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
             data = data.data[1]
         end
 
-        parseCardData(cardID, data, onSuccess)
+        parseCardData(cardID, data, onSuccess, incSem, decSem)
     end)
 end
 
@@ -669,8 +664,8 @@ local function fetchCardData(cards, onComplete, onError)
                   queryCard(cardID, false, true, onQuerySuccess,
                     function(e) -- onError, use the original language
                         onQuerySuccess(card, tokens)
-                    end
-                  )
+                    end,
+                  incSem, decSem)
                 else
                     -- We got the right language
                     onQuerySuccess(card, tokens)
@@ -683,10 +678,12 @@ local function fetchCardData(cards, onComplete, onError)
                     true,
                     false,
                     onQuerySuccess,
-                    onQueryFailed
+                    onQueryFailed,
+                    incSem,
+                    decSem
                 )
-            end
-        )
+            end,
+        incSem, decSem)
     end
 
     Wait.condition(
