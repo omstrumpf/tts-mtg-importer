@@ -457,17 +457,17 @@ end
 
 -- Parses scryfall response data for a card.
 -- Returns a populated card table and a list of tokens.
-local function parseCardData(cardID, data)
+local function parseCardData(cardID, data, onSuccess)
+    local sem = 0
     local tokens = {}
     local tokenData = {}
-
-    local function addToken(name, scryfallID, uri, shortName)
+    local function incSem() sem = sem + 1 end
+    local function decSem() sem = sem - 1 end
+    local function addToken(name, scryfallID, uri)
         -- Add it to the tokens list
-        table.insert(tokens, {
-            name = name,
-            scryfallID = scryfallID
-        })
-
+        incSem()
+        local token = {name=name, scryfallID = scryfallID,}
+        table.insert(tokens, token)
         -- Query for token data and save it on the card for later
         WebRequest.get(uri, function(webReturn)
             if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
@@ -482,11 +482,35 @@ local function parseCardData(cardID, data)
             end
 
             table.insert(tokenData, {
-                name = shortName or name,
+                name = name,
                 desc = collectOracleText(data),
                 front = pickImageURI(data),
                 back = getCardBack()
             })
+            -- Add it to the tokens list
+            token.oracleText = collectOracleText(data)
+            token.faces = {}
+            token.oracleID = data.oracle_id
+            token.language = data.lang
+            token.setCode = data.set
+            token.collectorNum = data.collector_number
+
+            if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" or data.layout == "double_faced_token" then
+                for i, face in ipairs(data.card_faces) do
+                    token['faces'][i] = {
+                        imageURI = pickImageURI(face, data.highres_image, data.image_status),
+                        name = getAugmentedName(face),
+                        oracleText = token.oracleText
+                    }
+                end
+            else
+                token['faces'][1] = {
+                    imageURI = pickImageURI(data),
+                    name = token.name,
+                    oracleText = token.oracleText
+                }
+            end
+            decSem()
         end)
     end
 
@@ -496,11 +520,10 @@ local function parseCardData(cardID, data)
             if part.component and (part.type_line == "Card" or part.component == "token") then
                 addToken(part.name, part.id, part.uri)
             elseif part.component and (string.sub(part.type_line,1,6) == "Emblem" and not (string.sub(data.type_line,1,6) == "Emblem")) then
-                addToken(part.name, part.id, part.uri, "Emblem")
+                addToken("Emblem", part.id, part.uri)
             end
         end
     end
-
     local card = shallowCopyTable(cardID)
     card.name = getAugmentedName(data)
     card.oracleText = collectOracleText(data)
@@ -528,8 +551,12 @@ local function parseCardData(cardID, data)
             tokenData = tokenData
         }
     end
-
-    return card, tokens
+    Wait.condition(
+        function() onSuccess(card, tokens) end,
+        function() return (sem == 0) end,
+        30,
+        function() onError("Error loading token data... timed out on "..data.name) end
+    )
 end
 
 -- Queries scryfall by the [cardID].
@@ -592,9 +619,7 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
             data = data.data[1]
         end
 
-        local card, tokens = parseCardData(cardID, data)
-
-        onSuccess(card, tokens)
+        parseCardData(cardID, data, onSuccess)
     end)
 end
 
@@ -682,12 +707,13 @@ local function loadDeck(cardIDs, deckName, onComplete, onError)
 
     printInfo("Querying Scryfall for card data...")
 
-    fetchCardData(cardIDs, function(cards, tokenIDs)
-        if tokenIDs and tokenIDs[1] then
+    fetchCardData(cardIDs, function(cards, tokens)
+        if tokens and tokens[1] then
             printInfo("Querying Scryfall for tokens...")
         end
 
-        fetchCardData(tokenIDs, function(tokens, _)
+--        fetchCardData(tokenIDs, function(tokens, _)
+--        Token data already fetched inside the card fetch
             local maindeck = {}
             local sideboard = {}
             local maybeboard = {}
@@ -766,7 +792,6 @@ local function loadDeck(cardIDs, deckName, onComplete, onError)
                 10,
                 function() onError("Error spawning deck objects... timed out.") end
             )
-        end, onError)
     end, onError)
 end
 
