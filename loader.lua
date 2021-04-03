@@ -169,7 +169,6 @@ local function printInfo(s)
 end
 
 ------ CARD SPAWNING
-
 local function jsonForCardFace(face, position)
     local rotation = self.getRotation()
 
@@ -229,7 +228,7 @@ local function jsonForCardFace(face, position)
                 local pZ = -1.04
                 for i, token in ipairs(tokens) do
                     self.createButton({label = token.name,
-                        tooltip = "Create " .. token.name .. "\n" .. token.desc,
+                        tooltip = "Create " .. token.name .. "\n" .. token.oracleText,
                         click_function = "gt" .. i,
                         function_owner = self,
                         width = math.max(400, 40 * string.len(token.name) + 40),
@@ -266,7 +265,7 @@ local function jsonForCardFace(face, position)
                     callback_function = (function(obj)
                         obj.memo = ""
                         obj.setName(token.name)
-                        obj.setDescription(token.desc)
+                        obj.setDescription(token.oracleText)
                         obj.setCustomObject({
                             face = token.front,
                             back = token.back
@@ -456,82 +455,9 @@ local function collectOracleText(cardData)
     return oracleText
 end
 
--- Parses scryfall response data for a card.
--- Returns a populated card table and a list of tokens.
-local function parseCardData(cardID, data, onSuccess, incSem, decSem)
-    local tokens = {}
-    local tokenData = {}
-
-    local function addToken(name, scryfallID, uri, incSem, decSem)
-        -- Add it to the tokens list
-        incSem()
-        local token = {name=name, scryfallID = scryfallID,}
-        table.insert(tokens, token)
-        -- Query for token data and save it on the card for later
-        WebRequest.get(uri, function(webReturn)
-            if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
-                log("Error: " ..webReturn.error or "unknown")
-                return
-            end
-
-            local success, data = pcall(function() return JSON.decode(webReturn.text) end)
-            if not success or not data or data.object == "error" then
-                log("Error: JSON Parse")
-                return
-            end
-
-
-            -- Add it to the tokens list
-            token.name = getAugmentedName(data)
-            token.oracleText = collectOracleText(data)
-            token.faces = {}
-            token.oracleID = data.oracle_id
-            token.language = data.lang
-            token.setCode = data.set
-            token.collectorNum = data.collector_number
-
-            if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" or data.layout == "double_faced_token" then
-                for i, face in ipairs(data.card_faces) do
-                    token['faces'][i] = {
-                        imageURI = pickImageURI(face, data.highres_image, data.image_status),
-                        name = getAugmentedName(face),
-                        oracleText = token.oracleText
-                    }
-                end
-                table.insert(tokenData, {
-                    name = name,
-                    desc = collectOracleText(data),
-                    front = token['faces'][1].imageURI,
-                    back = token['faces'][2].imageURI
-                })
-            else
-                token['faces'][1] = {
-                    imageURI = pickImageURI(data),
-                    name = token.name,
-                    oracleText = token.oracleText
-                }
-                table.insert(tokenData, {
-                    name = name,
-                    desc = collectOracleText(data),
-                    front = token['faces'][1].imageURI,
-                    back = getCardBack()
-                })
-            end
-            decSem()
-        end)
-    end
-
-    -- On normal cards, check for tokens or related effects (i.e. city's blessing)
-    if data.all_parts and not (data.layout == "token" or data.type_line == "Card") then
-        for _, part in ipairs(data.all_parts) do
-            if part.component and (part.type_line == "Card" or part.component == "token") then
-                addToken(part.name, part.id, part.uri, incSem, decSem)
-            elseif part.component and (string.sub(part.type_line,1,6) == "Emblem" and not (string.sub(data.type_line,1,6) == "Emblem")) then
-                addToken("Emblem", part.id, part.uri, incSem, decSem)
-            end
-        end
-    end
+local function parseCardData(cardID, data)
     local card = shallowCopyTable(cardID)
+
     card.name = getAugmentedName(data)
     card.oracleText = collectOracleText(data)
     card.faces = {}
@@ -543,31 +469,113 @@ local function parseCardData(cardID, data, onSuccess, incSem, decSem)
 
     if data.layout == "transform" or data.layout == "art_series" or data.layout == "double_sided" or data.layout == "modal_dfc" or data.layout == "double_faced_token" then
         for i, face in ipairs(data.card_faces) do
-            card['faces'][i] = {
+            card.faces[i] = {
                 imageURI = pickImageURI(face, data.highres_image, data.image_status),
                 name = getAugmentedName(face),
-                oracleText = card.oracleText,
-                tokenData = tokenData
+                oracleText = card.oracleText
             }
         end
     else
-        card['faces'][1] = {
+        card.faces[1] = {
             imageURI = pickImageURI(data),
             name = card.name,
-            oracleText = card.oracleText,
-            tokenData = tokenData
+            oracleText = card.oracleText
         }
     end
 
-    onSuccess(card, tokens)
+    return card
+end
+
+-- Parses scryfall response data for a card.
+-- Queries for tokens and associated cards.
+-- onSuccess is called with a populated card table, and list of tokens.
+local function handleCardResponse(cardID, data, onSuccess, onError)
+    local sem = 0
+    local function incSem() sem = sem + 1 end
+    local function decSem() sem = sem - 1 end
+
+    local tokens = {}
+    local tokenDataForButtons = {}
+
+    local function addToken(name, uri)
+        incSem()
+
+        WebRequest.get(uri, function(webReturn)
+            if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
+                log("Error fetching token: " ..webReturn.error or "unknown")
+                decSem()
+                return
+            end
+
+            local success, data = pcall(function() return JSON.decode(webReturn.text) end)
+            if not success or not data or data.object == "error" then
+                log("Error fetching token: JSON Parse")
+                decSem()
+                return
+            end
+
+            local token = parseCardData({}, data)
+
+            token.name = name
+
+            table.insert(tokens, token)
+
+            -- Store pared down token data for token buttons
+            local front
+            local back
+            if token.faces[1] then
+                front = token.faces[1].imageURI
+            end
+            if token.faces[2] then
+                back = token.faces[2].imageURI
+            else
+                back = getCardBack()
+            end
+
+            table.insert(tokenDataForButtons, {
+                name = token.name,
+                oracleText = token.oracleText,
+                front = front,
+                back = back,
+            })
+
+            decSem()
+        end)
+    end
+
+    -- On normal cards, check for tokens or related effects (i.e. city's blessing)
+    if data.all_parts and not (data.layout == "token" or data.type_line == "Card") then
+        for _, part in ipairs(data.all_parts) do
+            if part.component and (part.type_line == "Card" or part.component == "token") then
+                addToken(part.name, part.uri)
+            -- shorten name on emblems
+            elseif part.component and (string.sub(part.type_line,1,6) == "Emblem" and not (string.sub(data.type_line,1,6) == "Emblem")) then
+                addToken("Emblem", part.uri)
+            end
+        end
+    end
+
+    local card = parseCardData(cardID, data)
+
+    -- Store token data on each face
+    for _, face in ipairs(card.faces) do
+        face.tokenData = tokenDataForButtons
+    end
+
+    Wait.condition(
+        function() onSuccess(card, tokens) end,
+        function() return (sem == 0) end,
+        30,
+        function() onError("Error loading card data... timed out.") end
+    )
 end
 
 -- Queries scryfall by the [cardID].
 -- cardID must define at least one of scryfallID, multiverseID, or name.
 -- if forceNameQuery is true, will query scryfall by card name ignoring other data.
 -- if forceSetNumLangQuery is true, will query scryfall by set/num/lang ignoring other data.
--- onSuccess is called with a populated card table, and a table of associated token cardIDs.
-local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess, onError, incSem, decSem)
+-- onSuccess is called with a populated card table, and a table of associated tokens.
+local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess, onError)
     local query_url
 
     local language_code = getLanguageCode()
@@ -622,24 +630,24 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
             data = data.data[1]
         end
 
-        parseCardData(cardID, data, onSuccess, incSem, decSem)
+        handleCardResponse(cardID, data, onSuccess, onError)
     end)
 end
 
 -- Queries card data for all cards.
--- TODO use the bulk api
+-- TODO use the bulk api (blocked by JSON decode issue)
 local function fetchCardData(cards, onComplete, onError)
     local sem = 0
     local function incSem() sem = sem + 1 end
     local function decSem() sem = sem - 1 end
 
     local cardData = {}
-    local tokenIDs = {}
+    local tokensData = {}
 
     local function onQuerySuccess(card, tokens)
         table.insert(cardData, card)
         for _, token in ipairs(tokens) do
-            table.insert(tokenIDs, token)
+            table.insert(tokensData, token)
         end
         decSem()
     end
@@ -672,8 +680,7 @@ local function fetchCardData(cards, onComplete, onError)
                   queryCard(cardID, false, true, onQuerySuccess,
                     function(e) -- onError, use the original language
                         onQuerySuccess(card, tokens)
-                    end,
-                  incSem, decSem)
+                    end)
                 else
                     -- We got the right language
                     onQuerySuccess(card, tokens)
@@ -686,16 +693,13 @@ local function fetchCardData(cards, onComplete, onError)
                     true,
                     false,
                     onQuerySuccess,
-                    onQueryFailed,
-                    incSem,
-                    decSem
+                    onQueryFailed
                 )
-            end,
-        incSem, decSem)
+            end)
     end
 
     Wait.condition(
-        function() onComplete(cardData, tokenIDs) end,
+        function() onComplete(cardData, tokensData) end,
         function() return (sem == 0) end,
         30,
         function() onError("Error loading card images... timed out.") end
@@ -713,90 +717,84 @@ local function loadDeck(cardIDs, deckName, onComplete, onError)
     printInfo("Querying Scryfall for card data...")
 
     fetchCardData(cardIDs, function(cards, tokens)
-        if tokens and tokens[1] then
-            printInfo("Querying Scryfall for tokens...")
+        local maindeck = {}
+        local sideboard = {}
+        local maybeboard = {}
+        local commander = {}
+
+        for _, card in ipairs(cards) do
+            if card.maybeboard then
+                table.insert(maybeboard, card)
+            elseif card.sideboard then
+                table.insert(sideboard, card)
+            elseif card.commander then
+                table.insert(commander, card)
+            else
+                table.insert(maindeck, card)
+            end
         end
 
---        fetchCardData(tokenIDs, function(tokens, _)
---        Token data already fetched inside the card fetch
-            local maindeck = {}
-            local sideboard = {}
-            local maybeboard = {}
-            local commander = {}
+        printInfo("Spawning deck...")
 
-            for _, card in ipairs(cards) do
-                if card.maybeboard then
-                    table.insert(maybeboard, card)
-                elseif card.sideboard then
-                    table.insert(sideboard, card)
-                elseif card.commander then
-                    table.insert(commander, card)
-                else
-                    table.insert(maindeck, card)
-                end
+        local sem = 5
+        local function decSem() sem = sem - 1 end
+
+        spawnDeck(maindeck, deckName, maindeckPosition, true,
+            function() -- onSuccess
+                decSem()
+            end,
+            function(e) -- onError
+                printErr(e)
+                decSem()
             end
+        )
 
-            printInfo("Spawning deck...")
+        spawnDeck(sideboard, deckName .. " - sideboard", sideboardPosition, true,
+            function() -- onSuccess
+                decSem()
+            end,
+            function(e) -- onError
+                printErr(e)
+                decSem()
+            end
+        )
 
-            local sem = 5
-            local function decSem() sem = sem - 1 end
+        spawnDeck(maybeboard, deckName .. " - maybeboard", maybeboardPosition, true,
+            function() -- onSuccess
+                decSem()
+            end,
+            function(e) -- onError
+                printErr(e)
+                decSem()
+            end
+        )
 
-            spawnDeck(maindeck, deckName, maindeckPosition, true,
-                function() -- onSuccess
-                    decSem()
-                end,
-                function(e) -- onError
-                    printErr(e)
-                    decSem()
-                end
-            )
+        spawnDeck(commander, deckName .. " - commanders", commanderPosition, false,
+            function() -- onSuccess
+                decSem()
+            end,
+            function(e) -- onError
+                printErr(e)
+                decSem()
+            end
+        )
 
-            spawnDeck(sideboard, deckName .. " - sideboard", sideboardPosition, true,
-                function() -- onSuccess
-                    decSem()
-                end,
-                function(e) -- onError
-                    printErr(e)
-                    decSem()
-                end
-            )
+        spawnDeck(tokens, deckName .. " - tokens", tokensPosition, true,
+            function() -- onSuccess
+                decSem()
+            end,
+            function(e) -- onError
+                printErr(e)
+                decSem()
+            end
+        )
 
-            spawnDeck(maybeboard, deckName .. " - maybeboard", maybeboardPosition, true,
-                function() -- onSuccess
-                    decSem()
-                end,
-                function(e) -- onError
-                    printErr(e)
-                    decSem()
-                end
-            )
-
-            spawnDeck(commander, deckName .. " - commanders", commanderPosition, false,
-                function() -- onSuccess
-                    decSem()
-                end,
-                function(e) -- onError
-                    printErr(e)
-                    decSem()
-                end
-            )
-
-            spawnDeck(tokens, deckName .. " - tokens", tokensPosition, true,
-                function() -- onSuccess
-                    decSem()
-                end,
-                function(e) -- onError
-                    printErr(e)
-                    decSem()
-                end
-            )
-
-            Wait.condition(
-                function() onComplete() end,
-                function() return (sem == 0) end,
-                10,
-                function() onError("Error spawning deck objects... timed out.") end
-            )
+        Wait.condition(
+            function() onComplete() end,
+            function() return (sem == 0) end,
+            10,
+            function() onError("Error spawning deck objects... timed out.") end
+        )
     end, onError)
 end
 
