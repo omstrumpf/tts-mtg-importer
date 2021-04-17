@@ -387,7 +387,14 @@ local function pickImageURI(cardData, highres_image, image_status)
         image_status = cardData.image_status
     end
 
-    local uri = stripScryfallImageURI(cardData.image_uris.large)
+    if onPNGgraphics then
+        log ("fetching PNG image")
+        uri = stripScryfallImageURI(cardData.image_uris.png)
+    else
+        log ("fetching JPG image")
+        uri = stripScryfallImageURI(cardData.image_uris.large)
+    end
+    log (uri)
 
     local sep
     if uri:find("?") then
@@ -596,6 +603,9 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
     else
         query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
     end
+
+    -- vorrei scegliere sempre la prima edizione possibile
+    log (query_url)
 
     webRequest = WebRequest.get(query_url, function(webReturn)
         if webReturn.is_error or webReturn.error then
@@ -1329,7 +1339,7 @@ local function drawUI()
     self.createButton({
         click_function = "onLoadDeckURLButton",
         function_owner = self,
-        label          = "Load Deck (URL)",
+        label          = "Load Deck (from URL)",
         position       = {-1, 0.1, 1.15},
         rotation       = {0, 0, 0},
         width          = 850,
@@ -1452,6 +1462,10 @@ end
 
 function mtgdl__onBlowCacheInput(_, value, _)
     blowCache = value
+end
+
+function mtgdl__onPNGgraphics(_, value, _)
+    onPNGgraphics = value
 end
 
 ------ TTS CALLBACKS
