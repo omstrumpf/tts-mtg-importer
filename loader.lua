@@ -82,6 +82,8 @@ languageInput = ""
 forceLanguage = false
 enableTokenButtons = false
 blowCache = false
+pngGraphics = true
+getFirstPrint = true
 
 ------ UTILITY
 local function trim(s)
@@ -387,7 +389,7 @@ local function pickImageURI(cardData, highres_image, image_status)
         image_status = cardData.image_status
     end
 
-    if onPNGgraphics then
+    if pngGraphics then
         log ("fetching PNG image")
         uri = stripScryfallImageURI(cardData.image_uris.png)
     else
@@ -586,8 +588,13 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
     local query_url
 
     local language_code = getLanguageCode()
+    log ("into queryCard")
 
-    if forceNameQuery then
+    if getFirstPrint then
+        log ("getFirstPrint")
+        query_url = SCRYFALL_SEARCH_BASE_URL .. cardID.name .. "&unique=prints&dir=asc&order=released"
+    elseif forceNameQuery then
+        log ("forceNameQuery")
         query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
     elseif forceSetNumLangQuery then
         query_url = SCRYFALL_SET_NUM_BASE_URL .. string.lower(cardID.setCode) .. "/" .. cardID.collectorNum .. "/" .. language_code
@@ -670,6 +677,7 @@ local function fetchCardData(cards, onComplete, onError)
     local language = getLanguageCode()
 
     for _, cardID in ipairs(cards) do
+        log ("calling queryCard from within fetchCardData" )
         incSem()
         queryCard(
             cardID,
@@ -1465,7 +1473,11 @@ function mtgdl__onBlowCacheInput(_, value, _)
 end
 
 function mtgdl__onPNGgraphics(_, value, _)
-    onPNGgraphics = value
+    pngGraphics = value
+end
+
+function mtgdl__onGetFirstPrint(_, value, _)
+    getFirstPrint = value
 end
 
 ------ TTS CALLBACKS
