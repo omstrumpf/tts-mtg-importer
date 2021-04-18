@@ -76,7 +76,7 @@ UI_FORCE_LANGUAGE_TOGGLE = "MTGDeckLoaderForceLanguageToggleID"
 lock = false
 playerColor = nil
 deckSource = nil
-advanced = false
+advanced = true
 cardBackInput = ""
 languageInput = ""
 forceLanguage = false
@@ -84,6 +84,7 @@ enableTokenButtons = false
 blowCache = false
 pngGraphics = true
 getFirstPrint = true
+--setFirstPrint = mtgdl__onGetFirstPrint()
 
 ------ UTILITY
 local function trim(s)
@@ -219,6 +220,7 @@ local function jsonForCardFace(face, position)
      }
 
      if enableTokenButtons and face.tokenData and face.tokenData[1] and face.tokenData[1].name and string.len(face.tokenData[1].name) > 0 then
+         log ("token buttons enabled")
          json.LuaScript =
             [[function onLoad(saved_data)
                 if saved_data ~= "" then
@@ -588,10 +590,12 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
     local query_url
 
     local language_code = getLanguageCode()
-    log ("into queryCard")
-
+    log ("into queryCard. getFirstPrint is now:")
+    log (getFirstPrint)
+    log ("type is:")
+    log (type (getFirstPrint))
     if getFirstPrint then
-        log ("getFirstPrint")
+        log ("I shall getFirstPrint")
         query_url = SCRYFALL_SEARCH_BASE_URL .. cardID.name .. "&unique=prints&dir=asc&order=released"
     elseif forceNameQuery then
         log ("forceNameQuery")
@@ -677,7 +681,8 @@ local function fetchCardData(cards, onComplete, onError)
     local language = getLanguageCode()
 
     for _, cardID in ipairs(cards) do
-        log ("calling queryCard from within fetchCardData" )
+        log ("about to call queryCard from within fetchCardData. This is the status of things:" )
+        log (getFirstPrint , "getFirstPrint")
         incSem()
         queryCard(
             cardID,
@@ -1423,6 +1428,8 @@ function onLoadDeckNotebookButton(_, pc, _)
         return
     end
 
+    log ()
+
     playerColor = pc
     deckSource = DECK_SOURCE_NOTEBOOK
 
@@ -1457,6 +1464,7 @@ function getLanguageCode()
 end
 
 function mtgdl__onLanguageInput(_, value, _)
+    log ("onLanguageInput")
     languageInput = value
 end
 
@@ -1469,15 +1477,28 @@ function mtgdl__onTokenButtonsInput(_, value, _)
 end
 
 function mtgdl__onBlowCacheInput(_, value, _)
+    log ("mtgdl__onBlowCacheInput called.")
     blowCache = value
+    log (blowCache)
 end
 
 function mtgdl__onPNGgraphics(_, value, _)
     pngGraphics = value
+    if value == "True" then
+      pngGraphics = true
+    else
+      pngGraphics = false
+    end
 end
 
 function mtgdl__onGetFirstPrint(_, value, _)
-    getFirstPrint = value
+    log ("mtgdl__onGetFirstPrint called.")
+    if value == "True" then
+      getFirstPrint = true
+    else
+      getFirstPrint = false
+    end
+    log (getFirstPrint)
 end
 
 ------ TTS CALLBACKS
