@@ -253,14 +253,11 @@ local function jsonForCardFace(face, position)
 
             function getToken(i)
                 token = tokens[i]
-                position = self.getPosition()
-                position.y = position.y + 0.1
-                position.x = position.x + 2.5
                 spawnObject({
                     type = "Card",
                     sound = false,
                     rotation = self.getRotation(),
-                    position = position,
+                    position = self.positionToWorld({-2.2,0.1,0}),
                     scale = self.getScale(),
                     callback_function = (function(obj)
                         obj.memo = ""
@@ -270,6 +267,9 @@ local function jsonForCardFace(face, position)
                             face = token.front,
                             back = token.back
                         })
+                        if (parent) then
+                          parent.call("CAddButtons",{obj, self})
+                        end
                     end)
                 })
             end
