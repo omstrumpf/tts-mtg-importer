@@ -1339,7 +1339,7 @@ local function drawUI()
     self.createButton({
         click_function = "onLoadDeckURLButton",
         function_owner = self,
-        label          = "Load Deck (from URL)",
+        label          = "Load Deck (URL)",
         position       = {-1, 0.1, 1.15},
         rotation       = {0, 0, 0},
         width          = 850,
