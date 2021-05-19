@@ -1,0 +1,30 @@
+<Defaults>
+    <Text alignment="middleLeft" color="White" minWidth="10"/>
+    <InputField alignment="middleLeft"/>
+    <Toggle alignment="middleLeft" textColor="White"/>
+    <Panel alignment="middleLeft"/>
+</Defaults>
+
+<Panel id="MTGDeckLoaderAdvancedPanel" position="80 170 -10" rotation="180 180 0" width="300" height="300">
+    <Panel position="0 0 0">
+        <Text>Card Back</Text>
+        <InputField position = "18 0 0" onEndEdit="mtgdl__onCardBackInput" placeholder="Enter card back URL"></InputField>
+        <Toggle position="185 0 0" onValueChanged="mtgdl__onTokenButtonsInput" isOn="false">Token Buttons</Toggle>
+    </Panel>
+
+    <Panel position="0 -40 0">
+        <Text fontSize="10">Language (beta)</Text>
+        <InputField position="18 0 0" onEndEdit="mtgdl__onLanguageInput" placeholder="English"></InputField>
+        <Toggle position="185 0 0" onValueChanged="mtgdl__onForceLanguageInput">Force Language</Toggle>
+    </Panel>
+
+    <Panel position="0 -80 0">
+        <Toggle position="-70 0 0" onValueChanged="mtgdl__onBlowCacheInput" fontSize="10">Force Redownload Images</Toggle>
+    </Panel>
+    <Panel position="170 -80 0">
+        <Toggle position="-70 0 0" isOn="true" onValueChanged="mtgdl__onPNGgraphics" fontSize="10">Use PNG Graphics</Toggle>
+    </Panel>
+    <Panel position="300 -80 0">
+        <Toggle position="-70 0 0" isOn="true" onValueChanged="mtgdl__onGetFirstPrint" fontSize="10">Get first print of each card</Toggle>
+    </Panel>
+</Panel>
