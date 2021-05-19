@@ -82,6 +82,7 @@ languageInput = ""
 forceLanguage = false
 enableTokenButtons = false
 blowCache = false
+pngGraphics = true
 
 ------ UTILITY
 local function trim(s)
@@ -166,6 +167,11 @@ end
 
 local function printInfo(s)
     printToColor(s, playerColor)
+end
+
+local function stringToBool(s)
+    -- It is truly ridiculous that this needs to exist.
+    return (string.lower(s) == "true")
 end
 
 ------ CARD SPAWNING
@@ -387,7 +393,11 @@ local function pickImageURI(cardData, highres_image, image_status)
         image_status = cardData.image_status
     end
 
-    local uri = stripScryfallImageURI(cardData.image_uris.large)
+    if pngGraphics and cardData.image_uris.png then
+        uri = stripScryfallImageURI(cardData.image_uris.png)
+    else
+        uri = stripScryfallImageURI(cardData.image_uris.large)
+    end
 
     local sep
     if uri:find("?") then
@@ -1443,15 +1453,19 @@ function mtgdl__onLanguageInput(_, value, _)
 end
 
 function mtgdl__onForceLanguageInput(_, value, _)
-    forceLanguage = value
+    forceLanguage = stringToBool(value)
 end
 
 function mtgdl__onTokenButtonsInput(_, value, _)
-    enableTokenButtons = value
+    enableTokenButtons = stringToBool(value)
 end
 
 function mtgdl__onBlowCacheInput(_, value, _)
-    blowCache = value
+    blowCache = stringToBool(value)
+end
+
+function mtgdl__onPNGgraphics(_, value, _)
+    pngGraphics = stringToBool(value)
 end
 
 ------ TTS CALLBACKS
