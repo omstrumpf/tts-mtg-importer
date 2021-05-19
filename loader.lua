@@ -76,15 +76,13 @@ UI_FORCE_LANGUAGE_TOGGLE = "MTGDeckLoaderForceLanguageToggleID"
 lock = false
 playerColor = nil
 deckSource = nil
-advanced = true
+advanced = false
 cardBackInput = ""
 languageInput = ""
 forceLanguage = false
 enableTokenButtons = false
 blowCache = false
 pngGraphics = true
-getFirstPrint = true
---setFirstPrint = mtgdl__onGetFirstPrint()
 
 ------ UTILITY
 local function trim(s)
@@ -171,6 +169,11 @@ local function printInfo(s)
     printToColor(s, playerColor)
 end
 
+local function stringToBool(s)
+    -- It is truly ridiculous that this needs to exist.
+    return (string.lower(s) == "true")
+end
+
 ------ CARD SPAWNING
 local function jsonForCardFace(face, position)
     local rotation = self.getRotation()
@@ -220,7 +223,6 @@ local function jsonForCardFace(face, position)
      }
 
      if enableTokenButtons and face.tokenData and face.tokenData[1] and face.tokenData[1].name and string.len(face.tokenData[1].name) > 0 then
-         log ("token buttons enabled")
          json.LuaScript =
             [[function onLoad(saved_data)
                 if saved_data ~= "" then
@@ -391,7 +393,7 @@ local function pickImageURI(cardData, highres_image, image_status)
         image_status = cardData.image_status
     end
 
-    if pngGraphics then
+    if pngGraphics and cardData.image_uris.png then
         uri = stripScryfallImageURI(cardData.image_uris.png)
     else
         uri = stripScryfallImageURI(cardData.image_uris.large)
@@ -587,11 +589,8 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
     local query_url
 
     local language_code = getLanguageCode()
-    if getFirstPrint then
-        log ("I shall getFirstPrint")
-        query_url = SCRYFALL_SEARCH_BASE_URL .. cardID.name .. "&unique=prints&dir=asc&order=released"
-    elseif forceNameQuery then
-        log ("forceNameQuery")
+
+    if forceNameQuery then
         query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
     elseif forceSetNumLangQuery then
         query_url = SCRYFALL_SET_NUM_BASE_URL .. string.lower(cardID.setCode) .. "/" .. cardID.collectorNum .. "/" .. language_code
@@ -607,9 +606,6 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
     else
         query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
     end
-
-    -- vorrei scegliere sempre la prima edizione possibile
-    log (query_url)
 
     webRequest = WebRequest.get(query_url, function(webReturn)
         if webReturn.is_error or webReturn.error then
@@ -674,8 +670,6 @@ local function fetchCardData(cards, onComplete, onError)
     local language = getLanguageCode()
 
     for _, cardID in ipairs(cards) do
-        log ("about to call queryCard from within fetchCardData. This is the status of things:" )
-        log (getFirstPrint , "getFirstPrint")
         incSem()
         queryCard(
             cardID,
@@ -1421,8 +1415,6 @@ function onLoadDeckNotebookButton(_, pc, _)
         return
     end
 
-    log ()
-
     playerColor = pc
     deckSource = DECK_SOURCE_NOTEBOOK
 
@@ -1457,41 +1449,23 @@ function getLanguageCode()
 end
 
 function mtgdl__onLanguageInput(_, value, _)
-    log ("onLanguageInput")
     languageInput = value
 end
 
 function mtgdl__onForceLanguageInput(_, value, _)
-    forceLanguage = value
+    forceLanguage = stringToBool(value)
 end
 
 function mtgdl__onTokenButtonsInput(_, value, _)
-    enableTokenButtons = value
+    enableTokenButtons = stringToBool(value)
 end
 
 function mtgdl__onBlowCacheInput(_, value, _)
-    log ("mtgdl__onBlowCacheInput called.")
-    blowCache = value
-    log (blowCache)
+    blowCache = stringToBool(value)
 end
 
 function mtgdl__onPNGgraphics(_, value, _)
-    pngGraphics = value
-    if value == "True" then
-      pngGraphics = true
-    else
-      pngGraphics = false
-    end
-end
-
-function mtgdl__onGetFirstPrint(_, value, _)
-    log ("mtgdl__onGetFirstPrint called.")
-    if value == "True" then
-      getFirstPrint = true
-    else
-      getFirstPrint = false
-    end
-    log (getFirstPrint)
+    pngGraphics = stringToBool(value)
 end
 
 ------ TTS CALLBACKS
