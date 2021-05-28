@@ -20,6 +20,7 @@ SCRYFALL_ID_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_MULTIVERSE_BASE_URL = "https://api.scryfall.com/cards/multiverse/"
 SCRYFALL_SET_NUM_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_SEARCH_BASE_URL = "https://api.scryfall.com/cards/search/?q="
+SCRYFALL_SEARCH_FIRSTPRINT_BASE_URL = "https://api.scryfall.com/cards/search?q=not%3Areprint%20!%22"
 SCRYFALL_NAME_BASE_URL = "https://api.scryfall.com/cards/named/?exact="
 
 DECK_SOURCE_URL = "url"
@@ -83,6 +84,7 @@ forceLanguage = false
 enableTokenButtons = false
 blowCache = false
 pngGraphics = true
+getFirstPrint = true
 
 ------ UTILITY
 local function trim(s)
@@ -590,7 +592,9 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
 
     local language_code = getLanguageCode()
 
-    if forceNameQuery then
+    if getFirstPrint then
+        query_url = SCRYFALL_SEARCH_FIRSTPRINT_BASE_URL .. cardID.name:gsub(" ", "%%20") .. "%22"
+    elseif forceNameQuery then
         query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
     elseif forceSetNumLangQuery then
         query_url = SCRYFALL_SET_NUM_BASE_URL .. string.lower(cardID.setCode) .. "/" .. cardID.collectorNum .. "/" .. language_code
@@ -1466,6 +1470,10 @@ end
 
 function mtgdl__onPNGgraphics(_, value, _)
     pngGraphics = stringToBool(value)
+end
+
+function mtgdl__onGetFirstPrint(_, value, _)
+    getFirstPrint = stringToBool(value)
 end
 
 ------ TTS CALLBACKS
