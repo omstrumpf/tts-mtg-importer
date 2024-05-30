@@ -6,7 +6,7 @@ TAPPEDOUT_URL_SUFFIX = "/"
 TAPPEDOUT_URL_MATCH = "tappedout%.net"
 
 ARCHIDEKT_BASE_URL = "https://archidekt.com/api/decks/"
-ARCHIDEKT_URL_SUFFIX = "/small/?format=json"
+ARCHIDEKT_URL_SUFFIX = "/?format=json" -- This used to be "/small/?format=json", which loaded faster, but that endpoint doesn't work properly as of 2024-05.
 ARCHIDEKT_URL_MATCH = "archidekt%.com"
 
 GOLDFISH_URL_MATCH = "mtggoldfish%.com"
