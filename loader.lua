@@ -1029,16 +1029,24 @@ local function queryDeckArchidekt(deckID, onSuccess, onError)
 
         local function isMaybeboard(card)
             if card.categories and card.categories[1] then
-                local firstCategory = card.categories[1]
+                local firstCategoryName = card.categories[1]
 
                 for _, category in ipairs(data.categories) do
-                    if category.name == firstCategory then
+                    if category.name == firstCategoryName then
                         if not category.includedInDeck then
                             return true
                         end
                     end
                 end
 
+                return false
+            end
+        end
+
+        local function hasCategoryNamed(card, name)
+            if card.categories then
+                return valInTable(card.categories, name)
+            else
                 return false
             end
         end
@@ -1050,9 +1058,9 @@ local function queryDeckArchidekt(deckID, onSuccess, onError)
             if card and card.card then
                 cards[#cards+1] = {
                     count = card.quantity,
-                    sideboard = valInTable(card.categories, "Sideboard"),
+                    sideboard = hasCategoryNamed(card, "Sideboard"),
                     maybeboard = isMaybeboard(card),
-                    commander = valInTable(card.categories, "Commander"),
+                    commander = hasCategoryNamed(card, "Commander"),
                     name = card.card.oracleCard.name,
                     scryfallID = card.card.uid,
                 }
