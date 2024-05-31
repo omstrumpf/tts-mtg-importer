@@ -343,10 +343,21 @@ local function codepoint_to_utf8(n)
 end
 
 
+local function parse_number_b16(s)
+    -- tonumber raises when given the empty string, if the base is not 10...
+    if not s or s == '' then
+        return nil
+    end
+
+    return tonumber(s, 16)
+end
+
+
 local function parse_unicode_escape(s)
-  local n1 = tonumber( s:sub(1, 4),  16 )
-  local n2 = tonumber( s:sub(7, 10), 16 )
-   -- Surrogate pair?
+  local n1 = parse_number_b16( s:sub(1,4) )
+  local n2 = parse_number_b16( s:sub(7, 10) )
+
+  -- Surrogate pair?
   if n2 then
     return codepoint_to_utf8((n1 - 0xd800) * 0x400 + (n2 - 0xdc00) + 0x10000)
   else
