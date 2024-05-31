@@ -85,6 +85,7 @@ forceLanguage = false
 enableTokenButtons = false
 blowCache = false
 pngGraphics = true
+spawnEverythingFaceDown = false
 
 ------ UTILITY
 local function trim(s)
@@ -177,8 +178,13 @@ local function stringToBool(s)
 end
 
 ------ CARD SPAWNING
-local function jsonForCardFace(face, position)
+local function jsonForCardFace(face, position, flipped)
     local rotation = self.getRotation()
+
+    local rotZ = rotation.z
+    if flipped then
+        rotZ = math.fmod(rotZ + 180, 360)
+    end
 
     local json = {
         Name = "Card",
@@ -188,7 +194,7 @@ local function jsonForCardFace(face, position)
             posZ = position.z,
             rotX = rotation.x,
             rotY = rotation.y,
-            rotZ = rotation.z,
+            rotZ = rotZ,
             scaleX = 1,
             scaleY = 1,
             scaleZ = 1
@@ -299,6 +305,11 @@ local function spawnCard(faces, position, flipped, onFullySpawned)
             oracleText = "Card not found",
             imageURI = "https://vignette.wikia.nocookie.net/yugioh/images/9/94/Back-Anime-2.png/revision/latest?cb=20110624090942",
         }}
+    end
+
+    -- Force flipped if the user asked for everything to be spawned face-down
+    if spawnEverythingFaceDown then
+        flipped = true
     end
 
     local jsonFace1 = jsonForCardFace(faces[1], position, flipped)
@@ -1473,8 +1484,12 @@ function mtgdl__onBlowCacheInput(_, value, _)
     blowCache = stringToBool(value)
 end
 
-function mtgdl__onPNGgraphics(_, value, _)
+function mtgdl__onPNGGraphicsInput(_, value, _)
     pngGraphics = stringToBool(value)
+end
+
+function mtgdl__onFaceDownInput(_, value, _)
+    spawnEverythingFaceDown = stringToBool(value)
 end
 
 ------ TTS CALLBACKS

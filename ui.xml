@@ -22,6 +22,9 @@
         <Toggle position="-70 0 0" onValueChanged="mtgdl__onBlowCacheInput" fontSize="10">Force Redownload Images</Toggle>
     </Panel>
     <Panel position="170 -80 0">
-        <Toggle position="-70 0 0" isOn="true" onValueChanged="mtgdl__onPNGgraphics" fontSize="10">Use PNG Graphics</Toggle>
+        <Toggle position="-70 0 0" isOn="true" onValueChanged="mtgdl__onPNGGraphicsInput" fontSize="10">Use PNG Graphics</Toggle>
+    </Panel>
+    <Panel position="300 -80 0">
+        <Toggle position="-70 0 0" onValueChanged="mtgdl__onFaceDownInput" fontSize="10">Spaw everything face-down</Toggle>
     </Panel>
 </Panel>
