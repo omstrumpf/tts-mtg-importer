@@ -23,6 +23,7 @@ SCRYFALL_MULTIVERSE_BASE_URL = "https://api.scryfall.com/cards/multiverse/"
 SCRYFALL_SET_NUM_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_SEARCH_BASE_URL = "https://api.scryfall.com/cards/search/?q="
 SCRYFALL_NAME_BASE_URL = "https://api.scryfall.com/cards/named/?exact="
+SCRYFALL_HEADERS = {Accept = "application/json", ["User-Agent"] = "TTSMTGDeckImporter/1.0"}
 
 DECK_SOURCE_URL = "url"
 DECK_SOURCE_NOTEBOOK = "notebook"
@@ -523,7 +524,7 @@ local function handleCardResponse(cardID, data, onSuccess, onError)
     local function addToken(name, uri)
         incSem()
 
-        WebRequest.get(uri, function(webReturn)
+        WebRequest.custom(uri, "GET", true, "", SCRYFALL_HEADERS, function(webReturn)
             if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
                 log("Error fetching token: " ..webReturn.error or "unknown")
                 decSem()
@@ -620,7 +621,7 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
         query_url = SCRYFALL_NAME_BASE_URL .. cardID.name
     end
 
-    webRequest = WebRequest.get(query_url, function(webReturn)
+    webRequest = WebRequest.custom(query_url, "GET", true, "", SCRYFALL_HEADERS, function(webReturn)
         if webReturn.is_error or webReturn.error then
             onError("Web request error: " .. webReturn.error or "unknown")
             return
@@ -681,9 +682,11 @@ local function fetchCardData(cards, onComplete, onError)
 
     local language = getLanguageCode()
 
+    local SFDelay = 1.1
+    
     for _, cardID in ipairs(cards) do
         incSem()
-        queryCard(
+        Wait.time(function() queryCard(
             cardID,
             false,
             false,
@@ -717,13 +720,14 @@ local function fetchCardData(cards, onComplete, onError)
                     onQuerySuccess,
                     onQueryFailed
                 )
-            end)
+            end)end, math.floor(SFDelay))
+        SFDelay = SFDelay + 0.2
     end
 
     Wait.condition(
         function() onComplete(cardData, tokensData) end,
         function() return (sem == 0) end,
-        30,
+        60,
         function() onError("Error loading card images... timed out.") end
     )
 end
