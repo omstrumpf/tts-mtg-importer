@@ -525,9 +525,9 @@ local function handleCardResponse(cardID, data, onSuccess, onError)
     local function addToken(name, uri)
         incSem()
 
-        WebRequest.get(uri, function(webReturn)
+        WebRequest.custom(uri, "GET", true, nil, {["User-Agent"] = "MTGDeckLoaderTTS/1.0"}, function(webReturn)
             if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
-                log("Error fetching token: " ..webReturn.error or "unknown")
+                printInfo("Error fetching extra '" .. name .. "': " .. (webReturn.error or "unknown"))
                 decSem()
                 return
             end
@@ -762,6 +762,8 @@ local function fetchCardData(cards, onComplete, onError)
         table.insert(batches, {batch = batch, identifierMap = identifierMap, batchCards = batchCards})
         i = batchEnd + 1
     end
+
+    printInfo("Deck contains " .. #cards .. " cards.")
 
     -- Fire batches sequentially, waiting 100ms between each to respect Scryfall rate limits.
     local function fireBatch(batchIndex)
