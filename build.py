@@ -1,11 +1,18 @@
 """
 Builds the TTS mod JSON by inlining #include directives in loader.lua
 and writing the result into the Workshop save file.
+
+Usage: python build.py <workshop_dir>
+  workshop_dir: path to the TTS Workshop folder containing 2163084841.json
 """
-import json, os, re
+import json, os, re, sys
+
+if len(sys.argv) != 2:
+    print("Usage: python build.py <workshop_dir>")
+    sys.exit(1)
 
 repo = os.path.dirname(os.path.abspath(__file__))
-workshop = r"C:\Users\austin\Documents\My Games\Tabletop Simulator\Mods\Workshop"
+workshop = sys.argv[1]
 json_path = os.path.join(workshop, "2163084841.json")
 
 def resolve_includes(lua_text, base_dir):
