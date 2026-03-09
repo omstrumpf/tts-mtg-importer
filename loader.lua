@@ -23,6 +23,8 @@ SCRYFALL_MULTIVERSE_BASE_URL = "https://api.scryfall.com/cards/multiverse/"
 SCRYFALL_SET_NUM_BASE_URL = "https://api.scryfall.com/cards/"
 SCRYFALL_SEARCH_BASE_URL = "https://api.scryfall.com/cards/search/?q="
 SCRYFALL_NAME_BASE_URL = "https://api.scryfall.com/cards/named/?exact="
+SCRYFALL_COLLECTION_URL = "https://api.scryfall.com/cards/collection"
+SCRYFALL_COLLECTION_BATCH_SIZE = 70
 
 DECK_SOURCE_URL = "url"
 DECK_SOURCE_NOTEBOOK = "notebook"
@@ -523,9 +525,9 @@ local function handleCardResponse(cardID, data, onSuccess, onError)
     local function addToken(name, uri)
         incSem()
 
-        WebRequest.get(uri, function(webReturn)
+        WebRequest.custom(uri, "GET", true, nil, {["User-Agent"] = "MTGDeckLoaderTTS/1.0"}, function(webReturn)
             if webReturn.is_error or webReturn.error or string.len(webReturn.text) == 0 then
-                log("Error fetching token: " ..webReturn.error or "unknown")
+                printInfo("Error fetching extra '" .. name .. "': " .. (webReturn.error or "unknown"))
                 decSem()
                 return
             end
@@ -656,8 +658,21 @@ local function queryCard(cardID, forceNameQuery, forceSetNumLangQuery, onSuccess
     end)
 end
 
--- Queries card data for all cards.
--- TODO use the bulk api (blocked by JSON decode issue)
+-- Builds a Scryfall collection API identifier object and lookup key for a cardID.
+local function makeCollectionIdentifier(cardID)
+    if cardID.scryfallID and string.len(cardID.scryfallID) > 0 then
+        return {id = cardID.scryfallID}, "id:" .. cardID.scryfallID
+    elseif cardID.multiverseID and string.len(cardID.multiverseID) > 0 then
+        return {multiverse_id = tonumber(cardID.multiverseID)}, "mv:" .. cardID.multiverseID
+    elseif cardID.setCode and string.len(cardID.setCode) > 0 and cardID.collectorNum and string.len(cardID.collectorNum) > 0 then
+        return {collector_number = cardID.collectorNum, set = string.lower(cardID.setCode)}, "sn:" .. string.lower(cardID.setCode) .. ":" .. cardID.collectorNum
+    else
+        return {name = cardID.name}, "nm:" .. cardID.name
+    end
+end
+
+-- Queries card data for all cards using batched POST /cards/collection requests.
+-- Falls back to individual queries for any cards not found in a batch.
 local function fetchCardData(cards, onComplete, onError)
     local sem = 0
     local function incSem() sem = sem + 1 end
@@ -665,6 +680,7 @@ local function fetchCardData(cards, onComplete, onError)
 
     local cardData = {}
     local tokensData = {}
+    local language = getLanguageCode()
 
     local function onQuerySuccess(card, tokens)
         table.insert(cardData, card)
@@ -679,46 +695,162 @@ local function fetchCardData(cards, onComplete, onError)
         decSem()
     end
 
-    local language = getLanguageCode()
+    -- Processes a card response from the collection API, handling language re-queries.
+    local function processFoundCard(cardID, data)
+        handleCardResponse(
+            cardID,
+            data,
+            function(card, tokens)
+                if card.language != language and
+                   (forceLanguage or (not cardID.scryfallID and not cardID.multiverseID)) then
+                    cardID.setCode = card.setCode
+                    cardID.collectorNum = card.collectorNum
+                    queryCard(cardID, false, true, onQuerySuccess,
+                        function(e) -- onError, use the original language
+                            onQuerySuccess(card, tokens)
+                        end)
+                else
+                    onQuerySuccess(card, tokens)
+                end
+            end,
+            onQueryFailed
+        )
+    end
 
-    for _, cardID in ipairs(cards) do
+    -- Falls back to an individual queryCard call for a single cardID.
+    local function fallbackQueryCard(cardID)
         incSem()
         queryCard(
             cardID,
             false,
             false,
-            function (card, tokens) -- onSuccess
+            function(card, tokens)
                 if card.language != language and
                    (forceLanguage or (not cardID.scryfallID and not cardID.multiverseID)) then
-                  -- We got the wrong language, and should re-query.
-                  -- We requery if forceLanguage is enabled, or if the printing wasn't specified directly
-
-                  -- TODO currently we just hope that the target language is available in the printing
-                  -- we found. If it doesn't, we miss other printings that might have the right language.
-                  -- This isn't easily solveable, since TTS crashes if we try to do large scryfall queries.
-
-                  cardID.setCode = card.setCode
-                  cardID.collectorNum = card.collectorNum
-                  queryCard(cardID, false, true, onQuerySuccess,
-                    function(e) -- onError, use the original language
-                        onQuerySuccess(card, tokens)
-                    end)
+                    cardID.setCode = card.setCode
+                    cardID.collectorNum = card.collectorNum
+                    queryCard(cardID, false, true, onQuerySuccess,
+                        function(e)
+                            onQuerySuccess(card, tokens)
+                        end)
                 else
-                    -- We got the right language
                     onQuerySuccess(card, tokens)
                 end
             end,
-            function(e) -- onError
-                -- try again, forcing query-by-name.
-                queryCard(
-                    cardID,
-                    true,
-                    false,
-                    onQuerySuccess,
-                    onQueryFailed
-                )
+            function(e) -- onError, try again by name
+                queryCard(cardID, true, false, onQuerySuccess, onQueryFailed)
             end)
     end
+
+    -- Pre-build all batches.
+    local batches = {}
+    local i = 1
+    while i <= #cards do
+        local batchEnd = math.min(i + SCRYFALL_COLLECTION_BATCH_SIZE - 1, #cards)
+        local batch = {}
+        local identifierMap = {}
+        local batchCards = {}
+
+        for j = i, batchEnd do
+            local cardID = cards[j]
+            local identifier, key = makeCollectionIdentifier(cardID)
+            table.insert(batch, identifier)
+            identifierMap[key] = cardID
+            table.insert(batchCards, cardID)
+        end
+
+        table.insert(batches, {batch = batch, identifierMap = identifierMap, batchCards = batchCards})
+        i = batchEnd + 1
+    end
+
+    printInfo("Deck contains " .. #cards .. " cards.")
+
+    -- Fire batches sequentially, waiting 100ms between each to respect Scryfall rate limits.
+    local function fireBatch(batchIndex)
+        if batchIndex > #batches then return end
+
+        local b = batches[batchIndex]
+        printInfo("Querying Scryfall for card data (batch " .. batchIndex .. "/" .. #batches .. ", " .. #b.batchCards .. " cards)...")
+
+        incSem()
+        WebRequest.custom(
+            SCRYFALL_COLLECTION_URL,
+            "POST",
+            true,
+            jsonencode({identifiers = b.batch}),
+            {["Content-Type"] = "application/json", ["User-Agent"] = "MTGDeckLoaderTTS/1.0"},
+            function(webReturn)
+                decSem()
+                if webReturn.is_error or webReturn.error then
+                    for _, cardID in ipairs(b.batchCards) do
+                        fallbackQueryCard(cardID)
+                    end
+                    return
+                end
+
+                local success, responseData = pcall(function() return jsondecode(webReturn.text) end)
+                if not success or not responseData or responseData.object == "error" then
+                    for _, cardID in ipairs(b.batchCards) do
+                        fallbackQueryCard(cardID)
+                    end
+                    return
+                end
+
+                -- Process found cards, matching each back to its original cardID.
+                for _, cardResponseData in ipairs(responseData.data or {}) do
+                    local cardID = nil
+
+                    if cardResponseData.id then
+                        cardID = b.identifierMap["id:" .. cardResponseData.id]
+                    end
+
+                    if not cardID and cardResponseData.multiverse_ids then
+                        for _, mid in ipairs(cardResponseData.multiverse_ids) do
+                            cardID = b.identifierMap["mv:" .. tostring(mid)]
+                            if cardID then break end
+                        end
+                    end
+
+                    if not cardID and cardResponseData.set and cardResponseData.collector_number then
+                        cardID = b.identifierMap["sn:" .. string.lower(cardResponseData.set) .. ":" .. cardResponseData.collector_number]
+                    end
+
+                    if not cardID and cardResponseData.name then
+                        cardID = b.identifierMap["nm:" .. cardResponseData.name]
+                    end
+
+                    if cardID then
+                        incSem()
+                        processFoundCard(cardID, cardResponseData)
+                    end
+                end
+
+                -- Fall back to individual queries for any cards not found in the batch.
+                for _, notFound in ipairs(responseData.not_found or {}) do
+                    local cardID = nil
+                    if notFound.id then
+                        cardID = b.identifierMap["id:" .. notFound.id]
+                    elseif notFound.multiverse_id then
+                        cardID = b.identifierMap["mv:" .. tostring(notFound.multiverse_id)]
+                    elseif notFound.collector_number and notFound.set then
+                        cardID = b.identifierMap["sn:" .. string.lower(notFound.set) .. ":" .. notFound.collector_number]
+                    elseif notFound.name then
+                        cardID = b.identifierMap["nm:" .. notFound.name]
+                    end
+
+                    if cardID then
+                        fallbackQueryCard(cardID)
+                    end
+                end
+            end
+        )
+
+        if batchIndex < #batches then
+            Wait.time(function() fireBatch(batchIndex + 1) end, 0.1)
+        end
+    end
+
+    fireBatch(1)
 
     Wait.condition(
         function() onComplete(cardData, tokensData) end,
